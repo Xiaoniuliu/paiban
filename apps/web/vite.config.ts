@@ -1,9 +1,11 @@
 import { defineConfig } from 'vite'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
 const apiTarget = process.env.VITE_API_TARGET ?? 'http://localhost:8088'
+const currentDir = path.dirname(fileURLToPath(import.meta.url))
 
 function figmaAssetResolver() {
   return {
@@ -11,7 +13,7 @@ function figmaAssetResolver() {
     resolveId(id) {
       if (id.startsWith('figma:asset/')) {
         const filename = id.replace('figma:asset/', '')
-        return path.resolve(__dirname, 'src/assets', filename)
+        return path.resolve(currentDir, 'src/assets', filename)
       }
     },
   }
@@ -35,7 +37,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // Alias @ to the src directory
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(currentDir, './src'),
     },
   },
 

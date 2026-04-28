@@ -6,6 +6,7 @@ import com.pilotroster.assignment.AssignmentDtos.AdditionalAssignmentRequest;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentTaskDetailResponse;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentTaskResponse;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentTimelineBlockResponse;
+import com.pilotroster.assignment.AssignmentDtos.ClearAssignmentDraftResponse;
 import com.pilotroster.assignment.AssignmentDtos.SaveAssignmentDraftRequest;
 import com.pilotroster.assignment.AssignmentDtos.SaveAssignmentDraftResponse;
 import com.pilotroster.archive.FlightArchiveCaseRepository;
@@ -35,6 +36,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class AssignmentService {
 
     private static final String DRAFT_ASSIGNED_STATUS = "ASSIGNED_DRAFT";
+    private static final String STATUS_UNASSIGNED = "UNASSIGNED";
     private static final String STATUS_PUBLISHED = "PUBLISHED";
     private static final String STATUS_CANCELLED = "CANCELLED";
     private static final String BLOCK_FLIGHT_TYPE = "FLIGHT";
@@ -125,6 +127,45 @@ public class AssignmentService {
             desiredAssignments.stream().map(assignment -> assignment.crew().getId()).toList(),
             List.of(task.getId()),
             "OK"
+        );
+    }
+
+    @Transactional
+    public ClearAssignmentDraftResponse clearDraft(Long taskId, AuthenticatedUser user) {
+        TaskPlanItem task = task(taskId);
+        if (!DRAFT_ASSIGNED_STATUS.equals(task.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only draft assignments can be cleared");
+        }
+        if (archiveCaseRepository.existsByFlightId(task.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Archived flights must be handled from Archive Entry");
+        }
+
+        Long rosterVersionId = draftRosterVersionId();
+        List<TimelineBlock> existingBlocks = timelineBlockRepository
+            .findAllByTaskPlanItemIdAndRosterVersionIdOrderByIdAsc(task.getId(), rosterVersionId);
+        List<Long> affectedCrewIds = existingBlocks.stream()
+            .map(TimelineBlock::getCrewMemberId)
+            .filter(java.util.Objects::nonNull)
+            .distinct()
+            .toList();
+
+        timelineBlockRepository.deleteAll(existingBlocks);
+        task.setStatus(STATUS_UNASSIGNED);
+        taskPlanItemRepository.save(task);
+
+        auditLogService.recordAndReturnId(
+            user.id(),
+            "ASSIGNMENT_DRAFT_CLEARED",
+            "TaskPlanItem",
+            task.getId().toString(),
+            "SUCCESS"
+        );
+        domainEventService.record("AssignmentDraftCleared", "TaskPlanItem", task.getId().toString(), "{}");
+
+        return new ClearAssignmentDraftResponse(
+            toTaskResponse(task),
+            affectedCrewIds,
+            List.of(task.getId())
         );
     }
 

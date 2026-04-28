@@ -96,4 +96,11 @@ public final class AssignmentDtos {
         String validationSummary
     ) {
     }
+
+    public record ClearAssignmentDraftResponse(
+        AssignmentTaskResponse task,
+        List<Long> affectedCrewIds,
+        List<Long> affectedTaskIds
+    ) {
+    }
 }

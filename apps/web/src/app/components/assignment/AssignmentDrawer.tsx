@@ -12,6 +12,7 @@ interface AssignmentDrawerProps {
   t: (key: string) => string;
   onClose: () => void;
   onSave: (payload: SaveAssignmentDraftRequest) => Promise<void>;
+  onClearDraft: () => Promise<void>;
 }
 
 type AdditionalAssignmentRole = Extract<AssignmentRole, 'RELIEF' | 'EXTRA'>;
@@ -29,6 +30,7 @@ export function AssignmentDrawer({
   t,
   onClose,
   onSave,
+  onClearDraft,
 }: AssignmentDrawerProps) {
   const [picCrewId, setPicCrewId] = useState(() => String(detail.selectedPicCrewId ?? ''));
   const [foCrewId, setFoCrewId] = useState(() => String(detail.selectedFoCrewId ?? ''));
@@ -52,7 +54,7 @@ export function AssignmentDrawer({
     ...additionalAssignments.map((assignment) => assignment.crewId),
   ].filter(Boolean);
   const hasDuplicateCrew = new Set(assignedCrewIds).size !== assignedCrewIds.length;
-  const hasIncompleteAdditional = additionalAssignments.some((assignment) => assignment.crewId === '' || assignment.assignmentRole === '');
+  const hasIncompleteAdditional = additionalAssignments.some((assignment) => assignment.crewId === '');
   const canSave = detail.canEdit
     && picCrewId !== ''
     && foCrewId !== ''
@@ -248,6 +250,19 @@ export function AssignmentDrawer({
               {error && <div className="text-sm text-destructive">{error}</div>}
 
               <div className="flex justify-end gap-2 border-t border-border pt-4">
+                {detail.canEdit && detail.task.status === 'ASSIGNED_DRAFT' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    data-testid="assignment-clear-draft"
+                    disabled={saving}
+                    onClick={() => {
+                      void onClearDraft();
+                    }}
+                  >
+                    {t('assignmentClearDraft')}
+                  </Button>
+                )}
                 <Button type="button" variant="outline" onClick={onClose}>{t('closeArchiveDrawer')}</Button>
                 <Button type="button" data-testid="assignment-save" disabled={!canSave} onClick={save}>
                   {saving ? t('loading') : t('assignmentSaveDraft')}
@@ -352,7 +367,7 @@ function initialAdditionalAssignments(detail: AssignmentTaskDetail): AdditionalC
     .map((assignment) => ({
       key: String(assignment.timelineBlockId ?? `${assignment.assignmentRole}-${assignment.crewId}`),
       crewId: String(assignment.crewId),
-      assignmentRole: assignment.assignmentRole,
+      assignmentRole: assignment.assignmentRole as AdditionalAssignmentRole,
     }));
 }
 

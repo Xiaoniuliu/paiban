@@ -77,7 +77,7 @@
 
 飞行员排班本质是连续时间问题，因此产品必须保留时间轴态势视图，但一期的操作核心是任务池、表单、详情抽屉和校验与发布。甘特图负责展示连续时间关系、风险位置和状态跳转，不作为业务事实编辑器。
 
-一期排班工作台按“待排航班 -> 保存草稿 -> 校验与发布 -> 发布 -> 发布后运行日调整 -> 飞后归档”收口。二期按 [PHASE2_RULE_VALIDATION_CLOSURE.md](</D:/paiban2/PHASE2_RULE_VALIDATION_CLOSURE.md>) 收敛为规则命中池和规则中心展示：发布门槛、同一机组时间重叠、航班与状态块冲突接入校验与发布、运行日调整和规则中心。完整规则引擎进入三期，见 [PHASE3_RULE_ENGINE_BACKLOG.md](</D:/paiban2/PHASE3_RULE_ENGINE_BACKLOG.md>)，包括 FDP/FTL、preceding rest、DDO 34h + local nights、连续 duty、28 天累计、跨时区 recovery、Standby、Positioning、Discretion/CDR/AACM 等真实计算。
+一期排班工作台按“待排航班 -> 保存草稿 -> 校验与发布 -> 发布 -> 发布后运行日调整 -> 飞后归档”收口。二期按 [PHASE2_RULE_VALIDATION_CLOSURE.md](</D:/paiban2/PHASE2_RULE_VALIDATION_CLOSURE.md>) 收敛为规则命中池和规则中心展示：发布门槛、同一机组时间重叠、航班与状态块冲突接入校验与发布、运行日调整和规则中心。当前已进入三期，完整规则引擎按 [PHASE3_RULE_ENGINE_BACKLOG.md](</D:/paiban2/PHASE3_RULE_ENGINE_BACKLOG.md>) 推进，包括 FDP/FTL、preceding rest、DDO 34h + local nights、连续 duty、28 天累计、跨时区 recovery、Standby、Positioning、Discretion/CDR/AACM 等真实计算。
 
 ### 4.4 风险前置
 
@@ -664,15 +664,23 @@ flowchart TD
 ### 11.2 第二阶段
 
 - 运行日控制台
-- 候选替补机组推荐
 - block time 偏差治理
 - 合规报表增强
+- 规则命中池与规则中心增强
 
 ### 11.3 第三阶段
 
-- 半自动排班推荐
+- 完整规则引擎落地
 - 排班影响模拟
+- 批量调整工具
+- 候选机组推荐
+- 治理趋势与个人统计增强
+
+### 11.4 第四阶段
+
+- 半自动排班推荐
 - 机队/基地策略配置
+- 外部系统接入与高级分析
 
 ## 12. 产品实施建议
 
@@ -706,8 +714,8 @@ gantt
     报表与 AACM 清单            :c2, after b2, 12d
 
     section 阶段四
-    飞后回算与治理分析          :d1, after c1, 14d
-    半自动推荐准备              :d2, after c2, 12d
+    半自动推荐准备              :d1, after c1, 12d
+    外部系统接入与高级分析      :d2, after c2, 14d
 ```
 
 ## 13. 验收标准

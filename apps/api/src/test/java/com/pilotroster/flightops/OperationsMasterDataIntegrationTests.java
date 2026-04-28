@@ -35,6 +35,7 @@ class OperationsMasterDataIntegrationTests {
         jdbcTemplate.update("DELETE FROM crew_external_work WHERE description LIKE 'TEST-MASTER-%'");
         jdbcTemplate.update("DELETE FROM crew_qualification WHERE qualification_code = 'TEST-A330'");
         jdbcTemplate.update("DELETE FROM crew_member WHERE crew_code = 'TESTCREW01'");
+        jdbcTemplate.update("DELETE FROM crew_member WHERE crew_code = 'TESTCREW02'");
         jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code = 'TEST9001'");
         jdbcTemplate.update("DELETE FROM aircraft_registry WHERE aircraft_no = 'B-TEST01'");
         jdbcTemplate.update("DELETE FROM flight_route WHERE route_code = 'MFM-TEST'");
@@ -186,6 +187,116 @@ class OperationsMasterDataIntegrationTests {
         mockMvc.perform(delete("/api/crew-members/" + crewId + "/external-work/" + workId).header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("INACTIVE"));
+    }
+
+    @Test
+    void pilotCanOnlyReadLinkedCrewData() throws Exception {
+        String token = loginToken("pilot01", "Admin123!");
+        Long linkedCrewId = jdbcTemplate.queryForObject("SELECT crew_id FROM sys_user WHERE username = 'pilot01'", Long.class);
+        Long otherCrewId = jdbcTemplate.queryForObject("SELECT id FROM crew_member WHERE id <> ? ORDER BY id LIMIT 1", Long.class, linkedCrewId);
+
+        mockMvc.perform(get("/api/crew-members/" + linkedCrewId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/crew-members/" + otherCrewId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/crew-members/" + otherCrewId + "/qualifications").header("Authorization", "Bearer " + token))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/crew-members/" + otherCrewId + "/external-work").header("Authorization", "Bearer " + token))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void nestedCrewResourcesCannotBeMovedAcrossCrewIds() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+
+        MvcResult firstCrewResult = mockMvc.perform(post("/api/crew-members")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewCode": "TESTCREW01",
+                      "employeeNo": "TESTCREW01",
+                      "nameZh": "娴嬭瘯鏈虹粍A",
+                      "nameEn": "Test Crew A",
+                      "roleCode": "FIRST_OFFICER",
+                      "rankCode": "FO",
+                      "homeBase": "MFM",
+                      "aircraftQualification": "A330",
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long firstCrewId = extractLong(firstCrewResult.getResponse().getContentAsString(), "\"id\":");
+
+        MvcResult secondCrewResult = mockMvc.perform(post("/api/crew-members")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewCode": "TESTCREW02",
+                      "employeeNo": "TESTCREW02",
+                      "nameZh": "娴嬭瘯鏈虹粍B",
+                      "nameEn": "Test Crew B",
+                      "roleCode": "CAPTAIN",
+                      "rankCode": "CPT",
+                      "homeBase": "MFM",
+                      "aircraftQualification": "A330",
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long secondCrewId = extractLong(secondCrewResult.getResponse().getContentAsString(), "\"id\":");
+
+        MvcResult qualificationResult = mockMvc.perform(post("/api/crew-members/" + firstCrewId + "/qualifications")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "qualificationType": "AIRCRAFT",
+                      "qualificationCode": "TEST-A330",
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long qualificationId = extractLong(qualificationResult.getResponse().getContentAsString(), "\"id\":");
+
+        MvcResult workResult = mockMvc.perform(post("/api/crew-members/" + firstCrewId + "/external-work")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "externalType": "UNAVAILABLE",
+                      "startUtc": "2026-05-02T00:00:00Z",
+                      "endUtc": "2026-05-02T08:00:00Z",
+                      "description": "TEST-MASTER-unavailable",
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long workId = extractLong(workResult.getResponse().getContentAsString(), "\"id\":");
+
+        mockMvc.perform(put("/api/crew-members/" + secondCrewId + "/qualifications/" + qualificationId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "qualificationType": "AIRCRAFT",
+                      "qualificationCode": "TEST-A330",
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/crew-members/" + secondCrewId + "/external-work/" + workId)
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isNotFound());
     }
 
     private String loginToken(String username, String password) throws Exception {

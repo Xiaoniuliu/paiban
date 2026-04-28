@@ -108,6 +108,11 @@ public final class ArchiveDtos {
     ) {
     }
 
+    public record ArchiveSyncResponse(
+        int archiveCaseCount
+    ) {
+    }
+
     public record PilotArchiveSummaryResponse(
         Long archiveCaseId,
         Long flightId,

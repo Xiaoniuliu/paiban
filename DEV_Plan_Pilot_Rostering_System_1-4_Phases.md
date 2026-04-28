@@ -22,7 +22,7 @@
 
 - 当前系统复杂点在规则、状态流、时间轴和业务闭环，不在微服务拆分
 - 一期需要稳定落地，不适合先引入分布式事务和跨服务联调复杂度
-- 模块化单体可以先保证业务闭环，三期以后再评估服务拆分
+- 模块化单体可以先保证业务闭环，四期以后再评估服务拆分
 
 ### 2.2 技术栈建议
 
@@ -309,7 +309,7 @@ Playwright 必须覆盖：
 
 飞后归档专项用例与开发流程见 [PHASE1_GANTT_ARCHIVE_WORKFLOW.md](</D:/paiban2/PHASE1_GANTT_ARCHIVE_WORKFLOW.md>)。该专项为一期 P0 验收范围，所有影响归档状态、actual 数据、规则复算和 AACM 清单的功能必须同步更新对应 Playwright 用例；甘特图只验收状态展示和详情跳转。
 
-排班工作台一期收口口径见 [PHASE1_ROSTERING_WORKBENCH_CLOSURE.md](</D:/paiban2/PHASE1_ROSTERING_WORKBENCH_CLOSURE.md>)。二期规则接管口径见 [PHASE2_RULE_VALIDATION_CLOSURE.md](</D:/paiban2/PHASE2_RULE_VALIDATION_CLOSURE.md>)。三期完整规则引擎待办见 [PHASE3_RULE_ENGINE_BACKLOG.md](</D:/paiban2/PHASE3_RULE_ENGINE_BACKLOG.md>)。一期完成基础发布门槛、发布后锁定、运行日调整入口和飞后归档闭环；二期完成规则命中池雏形、发布门槛、同一机组时间重叠、航班与状态块冲突、规则中心展示和最近命中；FDP/FTL、preceding rest、DDO 34h + local nights、连续 duty、28 天累计、跨时区 recovery、Standby、Positioning、Discretion/CDR/AACM 等完整法规计算统一进入三期规则引擎。
+排班工作台一期收口口径见 [PHASE1_ROSTERING_WORKBENCH_CLOSURE.md](</D:/paiban2/PHASE1_ROSTERING_WORKBENCH_CLOSURE.md>)。二期规则接管口径见 [PHASE2_RULE_VALIDATION_CLOSURE.md](</D:/paiban2/PHASE2_RULE_VALIDATION_CLOSURE.md>)。三期完整规则引擎待办见 [PHASE3_RULE_ENGINE_BACKLOG.md](</D:/paiban2/PHASE3_RULE_ENGINE_BACKLOG.md>)。一期完成基础发布门槛、发布后锁定、运行日调整入口和飞后归档闭环；二期完成规则命中池雏形、发布门槛、同一机组时间重叠、航班与状态块冲突、规则中心展示和最近命中；当前已进入三期，FDP/FTL、preceding rest、DDO 34h + local nights、连续 duty、28 天累计、跨时区 recovery、Standby、Positioning、Discretion/CDR/AACM 等完整法规计算按三期规则引擎推进。
 
 ### 3.5 验收颗粒度
 
@@ -846,10 +846,11 @@ Playwright 必须覆盖：
 
 #### 目标
 
-降低人工操作成本，提高排班效率。
+在完整规则引擎逐批落地的同时，降低人工操作成本，提高排班效率。
 
 #### 交付菜单增强
 
+- `Rule Center / Rostering Workbench`：完整规则引擎、规则试算转正式、规则证据增强
 - `Rostering Workbench`：批量调整、影响模拟、推荐机组
 - `Statistics Reports`：治理趋势
 - `Pilot Portal`：个人统计视图
@@ -868,14 +869,14 @@ Playwright 必须覆盖：
 
 #### Phase 4A：运营资料与机组资源补齐
 
-当前阶段先落地运营资料底座，不新增完整规则引擎和半自动排班推荐：
+若三期规则引擎因规则目录核对暂停，可并行先落地运营资料底座；本节记录的是并行推进口径，不代表整体已进入四期：
 
 - `Flight Operations Center / Flight Plan`：导入批次、批次历史、导入校验入口、字段映射入口和航班池 CRUD。
 - `Flight Operations Center / Operations Data`：航班、航线、机场时区、飞机资料四类台账，支持新增、编辑和停用。
 - `Crew Resources Center / Crew Information`：人员档案、资质/执照、小时与限制、执勤日历四个页内 tabs。
 - `Crew Resources Center / External Work`：外部工作、外部飞行、请假、不可用时间和外部任务台账，后续投影到机组可用性和甘特占位。
 - 删除策略统一为停用优先，已被排班、归档、规则命中引用的数据不得物理删除。
-- 小时与限制只展示已有滚动字段与 actual-only 单次 FDP 追踪；完整法规计算仍等待规则目录核对后进入规则引擎阶段。
+- 小时与限制只展示已有滚动字段与 actual-only 单次 FDP 追踪；完整法规计算仍等待规则目录核对后继续三期规则引擎阶段。
 
 #### 交付菜单增强
 

@@ -3,6 +3,7 @@ package com.pilotroster.assignment;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -97,6 +98,44 @@ class AssignmentIntegrationTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX8810 MFM-TPE')].taskStatus").value(hasItem("ASSIGNED_DRAFT")))
             .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX8810 MFM-TPE')].crewId").value(hasItem(picCrewId.intValue())));
+    }
+
+    @Test
+    void dispatcherClearsDraftAssignmentBackToUnassigned() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long taskId = taskId("NX8810");
+        Long picCrewId = crewId("CPT001");
+        Long foCrewId = crewId("FO001");
+
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "picCrewId": %d,
+                      "foCrewId": %d
+                    }
+                    """.formatted(picCrewId, foCrewId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.task.status").value("ASSIGNED_DRAFT"));
+
+        mockMvc.perform(delete("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.task.status").value("UNASSIGNED"))
+            .andExpect(jsonPath("$.data.affectedCrewIds.length()").value(2))
+            .andExpect(jsonPath("$.data.affectedTaskIds[0]").value(taskId));
+
+        mockMvc.perform(get("/api/assignments/tasks/" + taskId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.task.status").value("UNASSIGNED"))
+            .andExpect(jsonPath("$.data.currentAssignments.length()").value(0))
+            .andExpect(jsonPath("$.data.timelineBlocks.length()").value(0));
+
+        mockMvc.perform(get(timelinePath()).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX8810 MFM-TPE')].taskStatus").value(hasItem("UNASSIGNED")))
+            .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX8810 MFM-TPE')].crewId").value(hasItem((Object) null)));
     }
 
     @Test

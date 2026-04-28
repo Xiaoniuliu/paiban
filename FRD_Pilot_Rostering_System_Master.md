@@ -16,7 +16,7 @@
 
 公司为澳门货运航空公司，当前需要建设一套面向飞行员的排班系统。系统必须以疲劳管理、飞行时间限制、休息限制和合规留痕为核心，不仅能支持计划排班，还要支持运行日调整、待命呼出、跨时区任务、机长裁量、减休和 AACM 报送留痕。
 
-本系统第一阶段不做自动优化求解，先完成“人工编排 + 自动校验 + 例外闭环 + 合规归档”的完整闭环，为第二阶段半自动排班和第三阶段自动优化提供基础。
+本系统按四期推进：一期先完成“人工编排 + 自动校验 + 例外闭环 + 合规归档”的完整闭环；二期补齐运行治理和规则接管；当前已进入三期，主线是完整规则引擎与工作台效率增强；半自动辅助排班和更深的智能化能力保留到四期。
 
 ## 3. 建设目标
 
@@ -273,7 +273,7 @@
 | `crew-resources` | 机组资源中心 | Crew Resources Center | 机组信息、状态时间线、外部工作 | Crew Information、Status Timeline、External Work | DISPATCHER、OPS_MANAGER(只读)、ADMIN、PILOT(本人只读) | 以飞行员主数据、资质、飞行小时、执勤日历和计划状态块为核心 |
 | `rostering-workbench` | 排班工作台 | Rostering Workbench | 航班视图、机组视图、待排航班、校验与发布、运行日调整、飞后归档 | Flight View、Crew View、Unassigned Flights、Validation & Publish、Run-day Adjustments、Post-flight Archive | DISPATCHER、OPS_MANAGER、ADMIN | 一期桌面优先，甘特图双视图、待排航班、校验发布和飞后归档必须保留 |
 
-排班工作台一期收口以基础业务闭环为准：待排航班、保存草稿、基础校验与发布、发布后运行日调整和飞后归档。二期完成规则命中池雏形、发布门槛、同一机组时间重叠、航班与状态块冲突、规则中心展示和最近命中。完整法规规则校验进入三期规则引擎，见 [PHASE3_RULE_ENGINE_BACKLOG.md](</D:/paiban2/PHASE3_RULE_ENGINE_BACKLOG.md>)；FDP/FTL、preceding rest、DDO 34h + local nights、连续 duty、28 天累计、跨时区 recovery、Standby、Positioning、Discretion/CDR/AACM 等不得在二期伪装为已完成。
+排班工作台一期收口以基础业务闭环为准：待排航班、保存草稿、基础校验与发布、发布后运行日调整和飞后归档。二期完成规则命中池雏形、发布门槛、同一机组时间重叠、航班与状态块冲突、规则中心展示和最近命中。当前已进入三期，完整法规规则校验按三期规则引擎推进，见 [PHASE3_RULE_ENGINE_BACKLOG.md](</D:/paiban2/PHASE3_RULE_ENGINE_BACKLOG.md>)；FDP/FTL、preceding rest、DDO 34h + local nights、连续 duty、28 天累计、跨时区 recovery、Standby、Positioning、Discretion/CDR/AACM 等仍不得伪装为已完成。
 | `rule-center` | 规则中心 | Rule Center | 一级直接入口 | Direct entry | DISPATCHER、OPS_MANAGER、ADMIN | 规则目录、规则版本、FOM 来源引用和规则试算在规则中心页内承载，不再展开空泛子菜单 |
 | `exceptions-reporting` | 例外报送中心 | Exception Reporting Center | 例外申请、CDR / AACM | Exception Requests、CDR / AACM | DISPATCHER、OPS_MANAGER、ADMIN | Service Disruption、Commander's Discretion、Reduced Rest、CDR 台账和 AACM 报送闭环 |
 | `reports` | 统计报表 | Statistics Reports | 一级直接入口 | Direct entry | DISPATCHER、OPS_MANAGER、ADMIN | 统计图表、机组小时、执勤休息、DDO/Recovery、归档报表、数据导出和导出历史在统计报表页内承载 |
@@ -1147,6 +1147,8 @@
 
 ### Phase 3 效率增强
 
+- 完整规则引擎首批落地与试算转正式
+- FDP / FTL、rest、DDO、Recovery、Standby、Positioning、Discretion / CDR / AACM 等规则计算增强
 - 批量调整工具
 - 影响模拟
 - 候选机组推荐

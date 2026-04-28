@@ -2,6 +2,7 @@ package com.pilotroster.archive;
 
 import com.pilotroster.archive.ArchiveDtos.ArchiveCaseDetailResponse;
 import com.pilotroster.archive.ArchiveDtos.ArchiveCaseResponse;
+import com.pilotroster.archive.ArchiveDtos.ArchiveSyncResponse;
 import com.pilotroster.archive.ArchiveDtos.SaveCrewArchiveFormRequest;
 import com.pilotroster.archive.ArchiveDtos.SaveCrewArchiveFormResponse;
 import com.pilotroster.auth.AuthenticatedUser;
@@ -11,6 +12,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,6 +32,12 @@ public class ArchiveController {
     @PreAuthorize("hasAnyRole('DISPATCHER','OPS_MANAGER','ADMIN')")
     public ApiResponse<List<ArchiveCaseResponse>> cases(@AuthenticationPrincipal AuthenticatedUser user) {
         return ApiResponse.ok(archiveService.archiveCases(user));
+    }
+
+    @PostMapping("/sync")
+    @PreAuthorize("hasAnyRole('DISPATCHER','OPS_MANAGER','ADMIN')")
+    public ApiResponse<ArchiveSyncResponse> sync() {
+        return ApiResponse.ok(archiveService.syncArchiveState());
     }
 
     @GetMapping("/cases/{archiveCaseId}")

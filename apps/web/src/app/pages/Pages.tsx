@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
-  AlertTriangle,
   Archive,
   ArrowRight,
-  CalendarDays,
-  CheckCircle2,
   Clock,
   FileCheck2,
   ListChecks,
@@ -14,8 +11,6 @@ import {
   Plus,
   RefreshCw,
   Send,
-  ShieldCheck,
-  UserRound,
   Users,
 } from 'lucide-react';
 import type { ApiClient } from '../lib/api';
@@ -46,8 +41,6 @@ import type {
   FlightRoute,
   GanttTimelineBlock,
   Language,
-  RuleCatalog,
-  RuleRecentHit,
   RunDayAdjustment,
   RunDayAdjustmentType,
   SaveAssignmentDraftRequest,
@@ -55,7 +48,6 @@ import type {
   TaskPlanImportBatch,
   TaskPlanItem,
   TimelineBlock,
-  UserProfile,
   ValidationIssue,
   ValidationPublishSummary,
   ViewId,
@@ -72,89 +64,22 @@ import { Timestamp } from '../components/time';
 import { defaultGanttWindow, GanttTimeline } from '../components/timeline/GanttTimeline';
 import { ArchiveDrawer } from '../components/archive/ArchiveDrawer';
 import { AssignmentDrawer } from '../components/assignment/AssignmentDrawer';
-import OldDashboard from '../components/Dashboard';
-import OldScheduleGantt from '../components/ScheduleGantt';
-import OldComplianceCheck from '../components/ComplianceCheck';
-
-export interface PageProps {
-  activeView: ViewId;
-  api: ApiClient;
-  language: Language;
-  timezone: DisplayTimezone;
-  t: (key: string) => string;
-  user: UserProfile;
-}
-
-export function DashboardPage({ activeView, user, t }: PageProps) {
-  const stats = [
-    { label: t('menu-task-plan'), value: '1', icon: CalendarDays, tone: 'text-primary' },
-    { label: t('validation-rule-hits'), value: '2', icon: AlertTriangle, tone: 'text-warning' },
-    { label: t('exception-requests'), value: '0', icon: FileCheck2, tone: 'text-success' },
-    { label: t('reports-archive'), value: '0', icon: Archive, tone: 'text-muted-foreground' },
-  ];
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={stat.label} className="rounded-lg p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <div className="mt-2 text-3xl font-semibold">{stat.value}</div>
-                </div>
-                <Icon className={`h-7 w-7 ${stat.tone}`} />
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <Card className="rounded-lg xl:col-span-2">
-          <CardHeader>
-            <CardTitle>{t(viewTitleKey[activeView])}</CardTitle>
-            <CardDescription><Timestamp value={nowUtc()} /></CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {[
-                t('taskPlanDescription'),
-                t('workbenchDescription'),
-                t('validationDescription'),
-                t('exceptionsDescription'),
-              ].map((item) => (
-                <div key={item} className="flex items-center gap-3 rounded-md border border-border bg-background p-3">
-                  <CheckCircle2 className="h-4 w-4 text-success" />
-                  <span className="text-sm">{item}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-lg">
-          <CardHeader>
-            <CardTitle>{user.displayName}</CardTitle>
-            <CardDescription>{t('role')}: {user.role}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('currentSystemTime')}</span>
-              <Timestamp value={nowUtc()} />
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('language')}</span>
-              <span>{t('appName')}</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
+import type { PageProps } from './pageTypes';
+export {
+  AccessDeniedPage,
+  AdminPage,
+  DashboardPage,
+  ExceptionsCdrPage,
+  LegacyReferencePage,
+  PilotPortalPage,
+  ReportsPage,
+  ValidationCenterPage,
+} from './StaticPages';
+export {
+  LegacyRuleCenterPage,
+  RuleCenterPage,
+} from './RuleCenterPages';
+export { FlightOperationsPage } from './FlightOperationsPages';
 
 export function TaskPlanCenterPage({ activeView, api, t }: PageProps) {
   const [batches, setBatches] = useState<TaskPlanImportBatch[]>([]);
@@ -1341,6 +1266,11 @@ export function WorkbenchDraftVersionsPage({ activeView, api, t }: PageProps) {
     loadSummary();
   }, [loadSummary, reload]);
   const assignment = useAssignmentFlow(api, t, refreshAll);
+  const draftItems = useMemo(() => (
+    items
+      .filter((item) => item.status === 'ASSIGNED_DRAFT')
+      .sort((left, right) => utcEpochMs(left.scheduledStartUtc) - utcEpochMs(right.scheduledStartUtc))
+  ), [items]);
   const selectedIssue = useMemo(() => {
     if (!summary || summary.issues.length === 0) return null;
     return summary.issues.find((issue) => issue.id === selectedIssueId) ?? summary.issues[0];
@@ -1469,8 +1399,61 @@ export function WorkbenchDraftVersionsPage({ activeView, api, t }: PageProps) {
       </Card>
       {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
       {!loading && summary && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <Card className="rounded-lg" data-testid="validation-issue-list">
+        <div className="space-y-4">
+          <Card className="rounded-lg" data-testid="draft-task-list">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">{t('validationDraftAssigned')}</CardTitle>
+              <CardDescription>{t('draftVersionActionsDescription')}</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-muted-foreground">
+                      {[t('taskPool'), t('route'), t('start'), t('end'), t('status'), t('actions')].map((column) => (
+                        <th key={column} className="whitespace-nowrap px-3 py-3 font-medium">{column}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {draftItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-6">
+                          <EmptyState
+                            title={t('validationDraftAssigned')}
+                            description={t('noData')}
+                          />
+                        </td>
+                      </tr>
+                    ) : (
+                      draftItems.map((item) => (
+                        <tr key={item.id} className="border-b border-border last:border-0">
+                          <td className="whitespace-nowrap px-3 py-3 font-medium">{item.taskCode}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{routeLabel(item)}</td>
+                          <td className="whitespace-nowrap px-3 py-3"><Timestamp value={item.scheduledStartUtc} /></td>
+                          <td className="whitespace-nowrap px-3 py-3"><Timestamp value={item.scheduledEndUtc} /></td>
+                          <td className="whitespace-nowrap px-3 py-3"><TaskStatusBadge status={item.status} t={t} /></td>
+                          <td className="whitespace-nowrap px-3 py-3">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => assignment.openAssignmentTask(item.id)}
+                            >
+                              {t('assignmentAdjust')}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+            <Card className="rounded-lg" data-testid="validation-issue-list">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">{t('validationIssues')}</CardTitle>
               <CardDescription>{t('validationIssuesDescription')}</CardDescription>
@@ -1525,13 +1508,14 @@ export function WorkbenchDraftVersionsPage({ activeView, api, t }: PageProps) {
                 </table>
               </div>
             </CardContent>
-          </Card>
-          <ValidationIssueDetail
-            issue={selectedIssue}
-            items={items}
-            t={t}
-            onOpenAssignment={assignment.openAssignmentTask}
-          />
+            </Card>
+            <ValidationIssueDetail
+              issue={selectedIssue}
+              items={items}
+              t={t}
+              onOpenAssignment={assignment.openAssignmentTask}
+            />
+          </div>
         </div>
       )}
       <WorkbenchAssignmentDrawer assignment={assignment} t={t} />
@@ -2148,7 +2132,8 @@ export function WorkbenchArchiveEntryPage({ activeView, api, t }: PageProps) {
     let active = true;
     setArchiveLoading(true);
     setArchiveError('');
-    api.archiveCases()
+    api.syncArchiveState()
+      .then(() => api.archiveCases())
       .then((cases) => {
         if (active) setArchiveCases(cases);
       })
@@ -2618,11 +2603,12 @@ function useWorkbenchTimeline(
     let active = true;
     setTimelineLoaded(false);
     setError('');
-    api.ganttTimeline({
-      windowStartUtc: queryWindow.windowStartUtc,
-      windowEndUtc: queryWindow.windowEndUtc,
-      viewMode,
-    })
+    api.syncArchiveState()
+      .then(() => api.ganttTimeline({
+        windowStartUtc: queryWindow.windowStartUtc,
+        windowEndUtc: queryWindow.windowEndUtc,
+        viewMode,
+      }))
       .then((timelineBlocks) => {
         if (!active) return;
         setBlocks(timelineBlocks);
@@ -2652,7 +2638,8 @@ function useWorkbenchTimeline(
   const openArchiveCase = useCallback((archiveCaseId: number | null) => {
     if (!archiveCaseId) return;
     setError('');
-    api.archiveCase(archiveCaseId)
+    api.syncArchiveState()
+      .then(() => api.archiveCase(archiveCaseId))
       .then(setArchiveDetail)
       .catch(() => setError(t('archiveLoadError')));
   }, [api, t]);
@@ -2750,7 +2737,11 @@ function WorkbenchTimelineBody({
           t={t}
           onWindowChange={workbench.setTimelineWindow}
           onFlightBlockClick={workbench.openArchiveDrawer}
-          onAssignmentBlockClick={(block) => onAssignmentBlockClick?.(block.flightId)}
+          onAssignmentBlockClick={(block) => {
+            if (block.flightId != null) {
+              onAssignmentBlockClick?.(block.flightId);
+            }
+          }}
         />
       )}
     </>
@@ -2814,10 +2805,26 @@ function useAssignmentFlow(api: ApiClient, t: (key: string) => string, onSaved?:
     }
   }, [api, assignmentDetail, closeAssignment, onSaved, t]);
 
+  const clearAssignmentDraft = useCallback(async () => {
+    if (!assignmentDetail) return;
+    setAssignmentSaving(true);
+    setAssignmentError('');
+    try {
+      await api.clearAssignmentDraft(assignmentDetail.task.id);
+      onSaved?.();
+      closeAssignment();
+    } catch {
+      setAssignmentError(t('assignmentClearDraftError'));
+    } finally {
+      setAssignmentSaving(false);
+    }
+  }, [api, assignmentDetail, closeAssignment, onSaved, t]);
+
   return {
     assignmentDetail,
     assignmentError,
     assignmentSaving,
+    clearAssignmentDraft,
     closeAssignment,
     openAssignmentTask,
     saveAssignmentDraft,
@@ -2834,6 +2841,7 @@ function WorkbenchAssignmentDrawer({ assignment, t }: { assignment: AssignmentFl
       saving={assignment.assignmentSaving}
       error={assignment.assignmentError}
       t={t}
+      onClearDraft={assignment.clearAssignmentDraft}
       onClose={assignment.closeAssignment}
       onSave={assignment.saveAssignmentDraft}
     />
@@ -3088,1743 +3096,3 @@ function sameTimelineBlock(a: GanttTimelineBlock, b: GanttTimelineBlock) {
     && a.crewArchiveSummary.noFlyingHourConfirmed === b.crewArchiveSummary.noFlyingHourConfirmed;
 }
 
-export function FlightOperationsPage({ activeView, api, language, timezone, t }: PageProps) {
-  const [batches, setBatches] = useState<TaskPlanImportBatch[]>([]);
-  const [items, setItems] = useState<TaskPlanItem[]>([]);
-  const [airports, setAirports] = useState<AirportDictionary[]>([]);
-  const [routes, setRoutes] = useState<FlightRoute[]>([]);
-  const [aircraftRows, setAircraftRows] = useState<AircraftRegistry[]>([]);
-  const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [activeTab, setActiveTab] = useState(() => flightOperationsInitialTab(activeView));
-  const [editingTask, setEditingTask] = useState<Partial<TaskPlanItem> | null>(null);
-  const [editingRoute, setEditingRoute] = useState<Partial<FlightRoute> | null>(null);
-  const [editingAirport, setEditingAirport] = useState<Partial<AirportDictionary> | null>(null);
-  const [editingAircraft, setEditingAircraft] = useState<Partial<AircraftRegistry> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [loadWarning, setLoadWarning] = useState('');
-
-  const refresh = useCallback(() => {
-    setLoading(true);
-    setError('');
-    setLoadWarning('');
-    Promise.allSettled([api.taskPlanBatches(), api.taskPlanItems(), api.airports(), api.flightRoutes(), api.aircraftRegistry()])
-      .then(([batchResult, itemResult, airportResult, routeResult, aircraftResult]) => {
-        if (batchResult.status !== 'fulfilled' || itemResult.status !== 'fulfilled') {
-          setBatches([]);
-          setItems([]);
-          setAirports([]);
-          setRoutes([]);
-          setAircraftRows([]);
-          setError(t('flightOperationsLoadError'));
-          return;
-        }
-        setBatches(batchResult.value);
-        setItems(itemResult.value);
-        setAirports(airportResult.status === 'fulfilled' ? airportResult.value : []);
-        setRoutes(routeResult.status === 'fulfilled' ? routeResult.value : []);
-        setAircraftRows(aircraftResult.status === 'fulfilled' ? aircraftResult.value : []);
-        if (airportResult.status !== 'fulfilled' || routeResult.status !== 'fulfilled' || aircraftResult.status !== 'fulfilled') {
-          setLoadWarning(t('flightOperationsLoadError'));
-        }
-      })
-      .finally(() => setLoading(false));
-  }, [api, t]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    setActiveTab(flightOperationsInitialTab(activeView));
-  }, [activeView]);
-
-  const filteredItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return items.filter((item) => {
-      const haystack = [
-        item.taskCode,
-        item.taskType,
-        item.departureAirport ?? '',
-        item.arrivalAirport ?? '',
-        item.status,
-      ].join(' ').toLowerCase();
-      return (!normalizedQuery || haystack.includes(normalizedQuery))
-        && (statusFilter === 'ALL' || item.status === statusFilter);
-    });
-  }, [items, query, statusFilter]);
-
-  const statusValues = useMemo(() => Array.from(new Set(items.map((item) => item.status))).sort(), [items]);
-  const airportByCode = useMemo(() => new Map(airports.map((airport) => [airport.iataCode, airport])), [airports]);
-  const canEdit = true;
-
-  const saveTask = (event: FormEvent) => {
-    event.preventDefault();
-    if (!editingTask) return;
-    setSaving(true);
-    const payload = normalizeTaskPlanItemPayload(editingTask, timezone);
-    const action = editingTask.id ? api.updateTaskPlanItem(editingTask.id, payload) : api.createTaskPlanItem(payload);
-    action.then(() => {
-      setEditingTask(null);
-      refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
-  };
-
-  const saveRoute = (event: FormEvent) => {
-    event.preventDefault();
-    if (!editingRoute) return;
-    setSaving(true);
-    const action = editingRoute.id ? api.updateFlightRoute(editingRoute.id, editingRoute) : api.createFlightRoute(editingRoute);
-    action.then(() => {
-      setEditingRoute(null);
-      refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
-  };
-
-  const saveAirport = (event: FormEvent) => {
-    event.preventDefault();
-    if (!editingAirport) return;
-    setSaving(true);
-    const action = editingAirport.id ? api.updateAirport(editingAirport.id, editingAirport) : api.createAirport(editingAirport);
-    action.then(() => {
-      setEditingAirport(null);
-      refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
-  };
-
-  const saveAircraft = (event: FormEvent) => {
-    event.preventDefault();
-    if (!editingAircraft) return;
-    setSaving(true);
-    const action = editingAircraft.id ? api.updateAircraft(editingAircraft.id, editingAircraft) : api.createAircraft(editingAircraft);
-    action.then(() => {
-      setEditingAircraft(null);
-      refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
-  };
-
-  const cancelTask = (item: TaskPlanItem) => {
-    api.cancelTaskPlanItem(item.id).then(refresh).catch(() => setError(t('saveFailed')));
-  };
-
-  const content = activeView === 'task-import-batches'
-    ? (
-      <FlightPlanOperationsPanel
-        batches={batches}
-        items={filteredItems}
-        allItems={items}
-        loading={loading}
-        error={error}
-        loadWarning={loadWarning}
-        query={query}
-        statusFilter={statusFilter}
-        statusValues={statusValues}
-        canEdit={canEdit}
-        t={t}
-        onQueryChange={setQuery}
-        onStatusFilterChange={setStatusFilter}
-        onAddTask={() => setEditingTask(defaultTaskPlanItemForm(batches[0]?.id, timezone))}
-        onEditTask={(item) => setEditingTask(taskPlanItemToForm(item, timezone))}
-        onCancelTask={cancelTask}
-      />
-    )
-    : (
-      <OperationsDataPanel
-        items={filteredItems}
-        allItems={items}
-        airports={airports}
-        airportByCode={airportByCode}
-        routes={routes}
-        aircraftRows={aircraftRows}
-        activeTab={activeTab}
-        loading={loading}
-        error={error}
-        loadWarning={loadWarning}
-        query={query}
-        statusFilter={statusFilter}
-        statusValues={statusValues}
-        language={language}
-        t={t}
-        canEdit={canEdit}
-        onTabChange={setActiveTab}
-        onQueryChange={setQuery}
-        onStatusFilterChange={setStatusFilter}
-        onAddTask={() => setEditingTask(defaultTaskPlanItemForm(batches[0]?.id, timezone))}
-        onEditTask={(item) => setEditingTask(taskPlanItemToForm(item, timezone))}
-        onCancelTask={cancelTask}
-        onAddRoute={() => setEditingRoute(defaultFlightRouteForm())}
-        onEditRoute={setEditingRoute}
-        onDisableRoute={(route) => api.disableFlightRoute(route.id).then(refresh).catch(() => setError(t('saveFailed')))}
-        onAddAirport={() => setEditingAirport(defaultAirportForm())}
-        onEditAirport={setEditingAirport}
-        onDisableAirport={(airport) => api.disableAirport(airport.id).then(refresh).catch(() => setError(t('saveFailed')))}
-        onAddAircraft={() => setEditingAircraft(defaultAircraftForm())}
-        onEditAircraft={setEditingAircraft}
-        onDisableAircraft={(aircraft) => api.disableAircraft(aircraft.id).then(refresh).catch(() => setError(t('saveFailed')))}
-      />
-    );
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        icon={Plane}
-        title={t(viewTitleKey[activeView])}
-        description={activeView === 'task-import-batches' ? t('flightPlanDescription') : t('operationsDataDescription')}
-      />
-      {content}
-      <TaskPlanItemEditDialog
-        open={editingTask !== null}
-        value={editingTask}
-        timezone={timezone}
-        saving={saving}
-        t={t}
-        onChange={setEditingTask}
-        onClose={() => setEditingTask(null)}
-        onSubmit={saveTask}
-      />
-      <FlightRouteEditDialog
-        open={editingRoute !== null}
-        value={editingRoute}
-        saving={saving}
-        t={t}
-        onChange={setEditingRoute}
-        onClose={() => setEditingRoute(null)}
-        onSubmit={saveRoute}
-      />
-      <AirportEditDialog
-        open={editingAirport !== null}
-        value={editingAirport}
-        saving={saving}
-        t={t}
-        onChange={setEditingAirport}
-        onClose={() => setEditingAirport(null)}
-        onSubmit={saveAirport}
-      />
-      <AircraftEditDialog
-        open={editingAircraft !== null}
-        value={editingAircraft}
-        saving={saving}
-        t={t}
-        onChange={setEditingAircraft}
-        onClose={() => setEditingAircraft(null)}
-        onSubmit={saveAircraft}
-      />
-    </div>
-  );
-}
-
-function FlightPlanOperationsPanel({
-  batches,
-  items,
-  allItems,
-  loading,
-  error,
-  loadWarning,
-  query,
-  statusFilter,
-  statusValues,
-  canEdit,
-  t,
-  onQueryChange,
-  onStatusFilterChange,
-  onAddTask,
-  onEditTask,
-  onCancelTask,
-}: {
-  batches: TaskPlanImportBatch[];
-  items: TaskPlanItem[];
-  allItems: TaskPlanItem[];
-  loading: boolean;
-  error: string;
-  loadWarning: string;
-  query: string;
-  statusFilter: string;
-  statusValues: string[];
-  canEdit: boolean;
-  t: (key: string) => string;
-  onQueryChange: (value: string) => void;
-  onStatusFilterChange: (value: string) => void;
-  onAddTask: () => void;
-  onEditTask: (item: TaskPlanItem) => void;
-  onCancelTask: (item: TaskPlanItem) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <FlightOperationsSummary items={allItems} batches={batches} t={t} />
-      {!error && loadWarning && <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">{loadWarning}</div>}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
-        <Card className="rounded-lg">
-          <CardHeader>
-            <CardTitle className="text-base">{t('importBatches')}</CardTitle>
-            <CardDescription>{t('flightPlanBatchDescription')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
-            {error && <div className="text-sm text-destructive">{error}</div>}
-            {!loading && !error && batches.map((batch) => (
-              <div key={batch.id} className="rounded-lg border border-border bg-background p-4">
-                <div className="font-medium">{batch.batchNo}</div>
-                <div className="mt-1 text-sm text-muted-foreground">{batch.sourceName}</div>
-                <div className="mt-3 flex items-center justify-between text-xs">
-                  <Badge variant="outline">{batch.status}</Badge>
-                  <Timestamp className="text-muted-foreground" value={batch.importedAtUtc} />
-                </div>
-              </div>
-            ))}
-            {!loading && !error && batches.length === 0 && (
-              <EmptyState title={t('noData')} description={t('flightPlanNoBatch')} />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-lg">
-          <CardHeader className="flex-row items-center justify-between">
-            <div>
-              <CardTitle className="text-base">{t('flightPool')}</CardTitle>
-              <CardDescription>{t('flightPoolDescription')}</CardDescription>
-            </div>
-            {canEdit && <Button onClick={onAddTask}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
-          </CardHeader>
-          <CardContent>
-            <FlightOperationsFilters
-              query={query}
-              statusFilter={statusFilter}
-              statusValues={statusValues}
-              t={t}
-              onQueryChange={onQueryChange}
-              onStatusFilterChange={onStatusFilterChange}
-            />
-            <div className="mt-4">
-              <FlightPlanItemsTable
-                items={items}
-                loading={loading}
-                error={error}
-                canEdit={canEdit}
-                t={t}
-                onEdit={onEditTask}
-                onCancel={onCancelTask}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function OperationsDataPanel({
-  items,
-  allItems,
-  airports,
-  airportByCode,
-  routes,
-  aircraftRows,
-  activeTab,
-  loading,
-  error,
-  loadWarning,
-  query,
-  statusFilter,
-  statusValues,
-  language,
-  t,
-  canEdit,
-  onTabChange,
-  onQueryChange,
-  onStatusFilterChange,
-  onAddTask,
-  onEditTask,
-  onCancelTask,
-  onAddRoute,
-  onEditRoute,
-  onDisableRoute,
-  onAddAirport,
-  onEditAirport,
-  onDisableAirport,
-  onAddAircraft,
-  onEditAircraft,
-  onDisableAircraft,
-}: {
-  items: TaskPlanItem[];
-  allItems: TaskPlanItem[];
-  airports: AirportDictionary[];
-  airportByCode: Map<string, AirportDictionary>;
-  routes: FlightRoute[];
-  aircraftRows: AircraftRegistry[];
-  activeTab: string;
-  loading: boolean;
-  error: string;
-  loadWarning: string;
-  query: string;
-  statusFilter: string;
-  statusValues: string[];
-  language: Language;
-  t: (key: string) => string;
-  canEdit: boolean;
-  onTabChange: (value: string) => void;
-  onQueryChange: (value: string) => void;
-  onStatusFilterChange: (value: string) => void;
-  onAddTask: () => void;
-  onEditTask: (item: TaskPlanItem) => void;
-  onCancelTask: (item: TaskPlanItem) => void;
-  onAddRoute: () => void;
-  onEditRoute: (route: FlightRoute) => void;
-  onDisableRoute: (route: FlightRoute) => void;
-  onAddAirport: () => void;
-  onEditAirport: (airport: AirportDictionary) => void;
-  onDisableAirport: (airport: AirportDictionary) => void;
-  onAddAircraft: () => void;
-  onEditAircraft: (aircraft: AircraftRegistry) => void;
-  onDisableAircraft: (aircraft: AircraftRegistry) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <FlightOperationsSummary items={allItems} t={t} />
-      {!error && loadWarning && <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">{loadWarning}</div>}
-      <Tabs value={activeTab} onValueChange={onTabChange}>
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="flights">{t('flightList')}</TabsTrigger>
-          <TabsTrigger value="routes">{t('routeManagement')}</TabsTrigger>
-          <TabsTrigger value="airports">{t('airportTimezone')}</TabsTrigger>
-          <TabsTrigger value="aircraft">{t('aircraftRegistry')}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="flights">
-          <Card className="rounded-lg">
-            <CardHeader className="flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-base">{t('flightList')}</CardTitle>
-                <CardDescription>{t('operationsFlightListDescription')}</CardDescription>
-              </div>
-              {canEdit && <Button onClick={onAddTask}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
-            </CardHeader>
-            <CardContent>
-              <FlightOperationsFilters
-                query={query}
-                statusFilter={statusFilter}
-                statusValues={statusValues}
-                t={t}
-                onQueryChange={onQueryChange}
-                onStatusFilterChange={onStatusFilterChange}
-              />
-              <div className="mt-4">
-                <FlightPlanItemsTable items={items} loading={loading} error={error} canEdit={canEdit} t={t} onEdit={onEditTask} onCancel={onCancelTask} />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="routes">
-          <RouteMaintenanceTable routes={routes} airportByCode={airportByCode} language={language} loading={loading} error={error} canEdit={canEdit} t={t} onAdd={onAddRoute} onEdit={onEditRoute} onDisable={onDisableRoute} />
-        </TabsContent>
-        <TabsContent value="airports">
-          <AirportMaintenanceTable airports={airports} language={language} loading={loading} error={error} canEdit={canEdit} t={t} onAdd={onAddAirport} onEdit={onEditAirport} onDisable={onDisableAirport} />
-        </TabsContent>
-        <TabsContent value="aircraft">
-          <AircraftMaintenanceTable aircraftRows={aircraftRows} loading={loading} error={error} canEdit={canEdit} t={t} onAdd={onAddAircraft} onEdit={onEditAircraft} onDisable={onDisableAircraft} />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
-function RouteMaintenanceTable({ routes, airportByCode, language, loading, error, canEdit, t, onAdd, onEdit, onDisable }: {
-  routes: FlightRoute[];
-  airportByCode: Map<string, AirportDictionary>;
-  language: Language;
-  loading: boolean;
-  error: string;
-  canEdit: boolean;
-  t: (key: string) => string;
-  onAdd: () => void;
-  onEdit: (route: FlightRoute) => void;
-  onDisable: (route: FlightRoute) => void;
-}) {
-  return (
-    <Card className="rounded-lg">
-      <CardHeader className="flex-row items-center justify-between">
-        <div>
-          <CardTitle className="text-base">{t('routeManagement')}</CardTitle>
-          <CardDescription>{t('routeManagementDescription')}</CardDescription>
-        </div>
-        {canEdit && <Button onClick={onAdd}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
-      </CardHeader>
-      <CardContent>
-        {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
-        {error && <div className="text-sm text-destructive">{error}</div>}
-        {!loading && !error && routes.length === 0 && <EmptyState title={t('noData')} description={t('routeNoData')} />}
-        {!loading && !error && routes.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
-              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">{t('routeCode')}</th><th className="py-3 pr-4">{t('departureAirport')}</th><th className="py-3 pr-4">{t('arrivalAirport')}</th><th className="py-3 pr-4">{t('standardDuration')}</th><th className="py-3 pr-4">{t('timeDifference')}</th><th className="py-3 pr-4">{t('crossTimezone')}</th><th className="py-3 pr-4">{t('status')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
-              <tbody>{routes.map((route) => (
-                <tr key={route.id} className="border-b border-border last:border-0">
-                  <td className="py-3 pr-4 font-medium">{route.routeCode}</td>
-                  <td className="py-3 pr-4">{route.departureAirport} {airportName(airportByCode.get(route.departureAirport), language)}</td>
-                  <td className="py-3 pr-4">{route.arrivalAirport} {airportName(airportByCode.get(route.arrivalAirport), language)}</td>
-                  <td className="py-3 pr-4">{formatMinutesAsHours(route.standardDurationMinutes)}</td>
-                  <td className="py-3 pr-4">{formatUtcOffset(route.timeDifferenceMinutes)}</td>
-                  <td className="py-3 pr-4">{route.crossTimezone ? t('yes') : t('no')}</td>
-                  <td className="py-3 pr-4"><Badge variant={route.status === 'ACTIVE' ? 'outline' : 'secondary'}>{route.status}</Badge></td>
-                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} t={t} onEdit={() => onEdit(route)} onDisable={() => onDisable(route)} /></td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function AirportMaintenanceTable({ airports, language, loading, error, canEdit, t, onAdd, onEdit, onDisable }: {
-  airports: AirportDictionary[];
-  language: Language;
-  loading: boolean;
-  error: string;
-  canEdit: boolean;
-  t: (key: string) => string;
-  onAdd: () => void;
-  onEdit: (airport: AirportDictionary) => void;
-  onDisable: (airport: AirportDictionary) => void;
-}) {
-  return (
-    <Card className="rounded-lg">
-      <CardHeader className="flex-row items-center justify-between">
-        <div>
-          <CardTitle className="text-base">{t('airportTimezone')}</CardTitle>
-          <CardDescription>{t('airportTimezoneDescription')}</CardDescription>
-        </div>
-        {canEdit && <Button onClick={onAdd}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
-      </CardHeader>
-      <CardContent>
-        {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
-        {error && <div className="text-sm text-destructive">{error}</div>}
-        {!loading && !error && airports.length === 0 && <EmptyState title={t('noData')} description={t('airportNoData')} />}
-        {!loading && !error && airports.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-sm">
-              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">IATA</th><th className="py-3 pr-4">{t('name')}</th><th className="py-3 pr-4">{t('timezoneName')}</th><th className="py-3 pr-4">{t('utcOffset')}</th><th className="py-3 pr-4">{t('countryCode')}</th><th className="py-3 pr-4">{t('status')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
-              <tbody>{airports.map((airport) => (
-                <tr key={airport.id} className="border-b border-border last:border-0">
-                  <td className="py-3 pr-4 font-medium">{airport.iataCode}</td>
-                  <td className="py-3 pr-4">{airportName(airport, language)}</td>
-                  <td className="py-3 pr-4">{airport.timezoneName}</td>
-                  <td className="py-3 pr-4">{formatUtcOffset(airport.utcOffsetMinutes)}</td>
-                  <td className="py-3 pr-4">{airport.countryCode}</td>
-                  <td className="py-3 pr-4"><Badge variant={airport.status === 'ACTIVE' ? 'outline' : 'secondary'}>{airport.status}</Badge></td>
-                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} t={t} onEdit={() => onEdit(airport)} onDisable={() => onDisable(airport)} /></td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function AircraftMaintenanceTable({ aircraftRows, loading, error, canEdit, t, onAdd, onEdit, onDisable }: {
-  aircraftRows: AircraftRegistry[];
-  loading: boolean;
-  error: string;
-  canEdit: boolean;
-  t: (key: string) => string;
-  onAdd: () => void;
-  onEdit: (aircraft: AircraftRegistry) => void;
-  onDisable: (aircraft: AircraftRegistry) => void;
-}) {
-  return (
-    <Card className="rounded-lg">
-      <CardHeader className="flex-row items-center justify-between">
-        <div>
-          <CardTitle className="text-base">{t('aircraftRegistry')}</CardTitle>
-          <CardDescription>{t('aircraftRegistryDescription')}</CardDescription>
-        </div>
-        {canEdit && <Button onClick={onAdd}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
-      </CardHeader>
-      <CardContent>
-        {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
-        {error && <div className="text-sm text-destructive">{error}</div>}
-        {!loading && !error && aircraftRows.length === 0 && <EmptyState title={t('noData')} description={t('aircraftNoData')} />}
-        {!loading && !error && aircraftRows.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
-              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">{t('aircraftNo')}</th><th className="py-3 pr-4">{t('aircraftType')}</th><th className="py-3 pr-4">{t('fleet')}</th><th className="py-3 pr-4">{t('base')}</th><th className="py-3 pr-4">{t('seatCount')}</th><th className="py-3 pr-4">{t('maxPayload')}</th><th className="py-3 pr-4">{t('status')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
-              <tbody>{aircraftRows.map((aircraft) => (
-                <tr key={aircraft.id} className="border-b border-border last:border-0">
-                  <td className="py-3 pr-4 font-medium">{aircraft.aircraftNo}</td>
-                  <td className="py-3 pr-4">{aircraft.aircraftType}</td>
-                  <td className="py-3 pr-4">{aircraft.fleet}</td>
-                  <td className="py-3 pr-4">{aircraft.baseAirport}</td>
-                  <td className="py-3 pr-4">{aircraft.seatCount}</td>
-                  <td className="py-3 pr-4">{aircraft.maxPayload ?? '-'}</td>
-                  <td className="py-3 pr-4"><Badge variant={aircraft.status === 'ACTIVE' ? 'outline' : 'secondary'}>{aircraft.status}</Badge></td>
-                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} t={t} onEdit={() => onEdit(aircraft)} onDisable={() => onDisable(aircraft)} /></td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ActionButtons({ canEdit, t, onEdit, onDisable }: { canEdit: boolean; t: (key: string) => string; onEdit: () => void; onDisable: () => void }) {
-  if (!canEdit) return null;
-  return (
-    <div className="flex gap-2">
-      <Button size="sm" variant="outline" onClick={onEdit}><Pencil className="mr-1 h-3 w-3" />{t('edit')}</Button>
-      <Button size="sm" variant="outline" onClick={onDisable}>{t('disable')}</Button>
-    </div>
-  );
-}
-
-function FlightOperationsSummary({
-  items,
-  batches = [],
-  t,
-}: {
-  items: TaskPlanItem[];
-  batches?: TaskPlanImportBatch[];
-  t: (key: string) => string;
-}) {
-  const totalFlights = items.length;
-  const unassigned = items.filter((item) => item.status === 'UNASSIGNED').length;
-  const assigned = items.filter((item) => item.status === 'ASSIGNED' || item.status === 'PUBLISHED').length;
-  const cancelled = items.filter((item) => item.status === 'CANCELLED').length;
-  const latestBatch = batches[0];
-  const cards = [
-    { label: t('totalFlights'), value: totalFlights },
-    { label: t('unassignedFlights'), value: unassigned },
-    { label: t('assignedFlights'), value: assigned },
-    { label: t('cancelledFlights'), value: cancelled },
-  ];
-  return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-      {cards.map((card) => (
-        <Card key={card.label} className="rounded-lg">
-          <CardContent className="p-4">
-            <div className="text-sm text-muted-foreground">{card.label}</div>
-            <div className="mt-2 text-2xl font-semibold">{card.value}</div>
-          </CardContent>
-        </Card>
-      ))}
-      {latestBatch && (
-        <Card className="rounded-lg md:col-span-4">
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div>
-              <div className="text-sm text-muted-foreground">{t('latestImportBatch')}</div>
-              <div className="mt-1 font-medium">{latestBatch.batchNo} / {latestBatch.sourceName}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline">{latestBatch.status}</Badge>
-              <Timestamp className="text-sm text-muted-foreground" value={latestBatch.importedAtUtc} />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-function FlightOperationsFilters({
-  query,
-  statusFilter,
-  statusValues,
-  t,
-  onQueryChange,
-  onStatusFilterChange,
-}: {
-  query: string;
-  statusFilter: string;
-  statusValues: string[];
-  t: (key: string) => string;
-  onQueryChange: (value: string) => void;
-  onStatusFilterChange: (value: string) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center">
-      <Input
-        value={query}
-        onChange={(event) => onQueryChange(event.target.value)}
-        placeholder={t('flightSearchPlaceholder')}
-      />
-      <select
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm"
-        value={statusFilter}
-        onChange={(event) => onStatusFilterChange(event.target.value)}
-        aria-label={t('status')}
-      >
-        <option value="ALL">{t('all')} {t('status')}</option>
-        {statusValues.map((status) => (
-          <option key={status} value={status}>{status}</option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function FlightPlanItemsTable({
-  items,
-  loading,
-  error,
-  canEdit = false,
-  t,
-  onEdit,
-  onCancel,
-}: {
-  items: TaskPlanItem[];
-  loading: boolean;
-  error: string;
-  canEdit?: boolean;
-  t: (key: string) => string;
-  onEdit?: (item: TaskPlanItem) => void;
-  onCancel?: (item: TaskPlanItem) => void;
-}) {
-  if (loading) return <div className="text-sm text-muted-foreground">{t('loading')}...</div>;
-  if (error) return <div className="text-sm text-destructive">{error}</div>;
-  if (items.length === 0) return <EmptyState title={t('noData')} description={t('flightNoData')} />;
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[1080px] text-sm">
-        <thead>
-          <tr className="border-b border-border text-left text-muted-foreground">
-            <th className="py-3 pr-4">{t('flightNo')}</th>
-            <th className="py-3 pr-4">{t('taskType')}</th>
-            <th className="py-3 pr-4">{t('route')}</th>
-            <th className="py-3 pr-4">{t('aircraftType')}</th>
-            <th className="py-3 pr-4">{t('requiredCrew')}</th>
-            <th className="py-3 pr-4">{t('start')}</th>
-            <th className="py-3 pr-4">{t('end')}</th>
-            <th className="py-3 pr-4">{t('duration')}</th>
-            <th className="py-3 pr-4">{t('sectors')}</th>
-            <th className="py-3 pr-4">{t('status')}</th>
-            {canEdit && <th className="py-3 pr-4">{t('actions')}</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id} className="border-b border-border last:border-0">
-              <td className="py-3 pr-4 font-medium">{item.taskCode}</td>
-              <td className="py-3 pr-4">{item.taskType}</td>
-              <td className="py-3 pr-4">{routeLabel(item)}</td>
-              <td className="py-3 pr-4">{item.aircraftType ?? '-'}</td>
-              <td className="py-3 pr-4">{item.requiredCrewPattern ?? '-'}</td>
-              <td className="py-3 pr-4"><Timestamp value={item.scheduledStartUtc} /></td>
-              <td className="py-3 pr-4"><Timestamp value={item.scheduledEndUtc} /></td>
-              <td className="py-3 pr-4">{taskDurationHours(item)}h</td>
-              <td className="py-3 pr-4">{item.sectorCount}</td>
-              <td className="py-3 pr-4"><Badge variant="outline">{item.status}</Badge></td>
-              {canEdit && (
-                <td className="py-3 pr-4">
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => onEdit?.(item)}><Pencil className="mr-1 h-3 w-3" />{t('edit')}</Button>
-                    <Button size="sm" variant="outline" onClick={() => onCancel?.(item)}>{t('cancelTask')}</Button>
-                  </div>
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function flightOperationsInitialTab(activeView: ViewId) {
-  if (activeView === 'route-management') return 'routes';
-  if (activeView === 'aircraft-registry') return 'aircraft';
-  if (activeView === 'airport-timezone') return 'airports';
-  return 'flights';
-}
-
-function defaultTaskPlanItemForm(batchId: number | undefined, timezone: DisplayTimezone): Partial<TaskPlanItem> {
-  const start = addUtcHours(nowUtc(), 24);
-  const end = addUtcHours(start, 5);
-  return {
-    batchId,
-    taskCode: '',
-    taskType: 'FLIGHT',
-    titleZh: '',
-    titleEn: '',
-    departureAirport: 'MFM',
-    arrivalAirport: '',
-    scheduledStartUtc: toDisplayDateTimeLocal(start, timezone),
-    scheduledEndUtc: toDisplayDateTimeLocal(end, timezone),
-    sectorCount: 1,
-    aircraftType: 'A330',
-    aircraftNo: '',
-    requiredCrewPattern: 'PIC+FO',
-    status: 'UNASSIGNED',
-    sourceStatus: 'MANUAL',
-  };
-}
-
-function taskPlanItemToForm(item: TaskPlanItem, timezone: DisplayTimezone): Partial<TaskPlanItem> {
-  return {
-    ...item,
-    scheduledStartUtc: toDisplayDateTimeLocal(item.scheduledStartUtc, timezone),
-    scheduledEndUtc: toDisplayDateTimeLocal(item.scheduledEndUtc, timezone),
-  };
-}
-
-function normalizeTaskPlanItemPayload(item: Partial<TaskPlanItem>, timezone: DisplayTimezone): Partial<TaskPlanItem> {
-  return {
-    ...item,
-    scheduledStartUtc: item.scheduledStartUtc ? displayDateTimeLocalToUtcIso(item.scheduledStartUtc, timezone) : item.scheduledStartUtc,
-    scheduledEndUtc: item.scheduledEndUtc ? displayDateTimeLocalToUtcIso(item.scheduledEndUtc, timezone) : item.scheduledEndUtc,
-  };
-}
-
-function defaultFlightRouteForm(): Partial<FlightRoute> {
-  return {
-    routeCode: '',
-    departureAirport: 'MFM',
-    arrivalAirport: '',
-    standardDurationMinutes: 300,
-    timeDifferenceMinutes: 0,
-    crossTimezone: false,
-    status: 'ACTIVE',
-  };
-}
-
-function defaultAirportForm(): Partial<AirportDictionary> {
-  return {
-    iataCode: '',
-    nameZh: '',
-    nameEn: '',
-    timezoneName: 'Asia/Macau',
-    utcOffsetMinutes: 480,
-    countryCode: '',
-    status: 'ACTIVE',
-  };
-}
-
-function defaultAircraftForm(): Partial<AircraftRegistry> {
-  return {
-    aircraftNo: '',
-    aircraftType: 'A330',
-    fleet: 'A330',
-    baseAirport: 'MFM',
-    seatCount: 0,
-    maxPayload: null,
-    status: 'ACTIVE',
-  };
-}
-
-function TaskPlanItemEditDialog({ open, value, timezone, saving, t, onChange, onClose, onSubmit }: {
-  open: boolean;
-  value: Partial<TaskPlanItem> | null;
-  timezone: DisplayTimezone;
-  saving: boolean;
-  t: (key: string) => string;
-  onChange: (value: Partial<TaskPlanItem> | null) => void;
-  onClose: () => void;
-  onSubmit: (event: FormEvent) => void;
-}) {
-  if (!value) return null;
-  const update = (key: keyof TaskPlanItem, nextValue: string | number | null | undefined) => onChange({ ...value, [key]: nextValue });
-  return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader><DialogTitle>{value.id ? t('editFlight') : t('addFlight')}</DialogTitle><DialogDescription>{t('flightPoolDescription')}</DialogDescription></DialogHeader>
-        <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={onSubmit}>
-          <FormField label={t('flightNo')}><Input required value={value.taskCode ?? ''} onChange={(event) => update('taskCode', event.target.value)} /></FormField>
-          <FormField label={t('taskType')}><Input value={value.taskType ?? 'FLIGHT'} onChange={(event) => update('taskType', event.target.value)} /></FormField>
-          <FormField label={t('departureAirport')}><Input value={value.departureAirport ?? ''} onChange={(event) => update('departureAirport', event.target.value)} /></FormField>
-          <FormField label={t('arrivalAirport')}><Input value={value.arrivalAirport ?? ''} onChange={(event) => update('arrivalAirport', event.target.value)} /></FormField>
-          <FormField label={t('start')}><Input required type="datetime-local" value={value.scheduledStartUtc ?? ''} onChange={(event) => update('scheduledStartUtc', event.target.value)} /></FormField>
-          <FormField label={t('end')}><Input required type="datetime-local" value={value.scheduledEndUtc ?? ''} onChange={(event) => update('scheduledEndUtc', event.target.value)} /></FormField>
-          <FormField label={t('aircraftType')}><Input value={value.aircraftType ?? ''} onChange={(event) => update('aircraftType', event.target.value)} /></FormField>
-          <FormField label={t('aircraftNo')}><Input value={value.aircraftNo ?? ''} onChange={(event) => update('aircraftNo', event.target.value)} /></FormField>
-          <FormField label={t('requiredCrew')}><Input value={value.requiredCrewPattern ?? ''} onChange={(event) => update('requiredCrewPattern', event.target.value)} /></FormField>
-          <FormField label={t('sectors')}><Input type="number" value={value.sectorCount ?? 1} onChange={(event) => update('sectorCount', Number(event.target.value))} /></FormField>
-          <FormField label={t('status')}><Input value={value.status ?? ''} onChange={(event) => update('status', event.target.value)} /></FormField>
-          <FormField label={t('sourceStatus')}><Input value={value.sourceStatus ?? ''} onChange={(event) => update('sourceStatus', event.target.value)} /></FormField>
-          <div className="md:col-span-2 text-xs text-muted-foreground">{t('timezone')}: {timezone}</div>
-          <DialogFooter className="md:col-span-2"><Button type="button" variant="outline" onClick={onClose}>{t('cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('saving') : t('save')}</Button></DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function FlightRouteEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }: {
-  open: boolean;
-  value: Partial<FlightRoute> | null;
-  saving: boolean;
-  t: (key: string) => string;
-  onChange: (value: Partial<FlightRoute> | null) => void;
-  onClose: () => void;
-  onSubmit: (event: FormEvent) => void;
-}) {
-  if (!value) return null;
-  const update = (key: keyof FlightRoute, nextValue: string | number | boolean) => onChange({ ...value, [key]: nextValue });
-  return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader><DialogTitle>{value.id ? t('editRoute') : t('addRoute')}</DialogTitle><DialogDescription>{t('routeManagementDescription')}</DialogDescription></DialogHeader>
-        <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={onSubmit}>
-          <FormField label={t('routeCode')}><Input required value={value.routeCode ?? ''} onChange={(event) => update('routeCode', event.target.value)} /></FormField>
-          <FormField label={t('departureAirport')}><Input required value={value.departureAirport ?? ''} onChange={(event) => update('departureAirport', event.target.value)} /></FormField>
-          <FormField label={t('arrivalAirport')}><Input required value={value.arrivalAirport ?? ''} onChange={(event) => update('arrivalAirport', event.target.value)} /></FormField>
-          <FormField label={t('standardDurationMinutes')}><Input type="number" value={value.standardDurationMinutes ?? 0} onChange={(event) => update('standardDurationMinutes', Number(event.target.value))} /></FormField>
-          <FormField label={t('timeDifferenceMinutes')}><Input type="number" value={value.timeDifferenceMinutes ?? 0} onChange={(event) => update('timeDifferenceMinutes', Number(event.target.value))} /></FormField>
-          <FormField label={t('status')}><Input value={value.status ?? ''} onChange={(event) => update('status', event.target.value)} /></FormField>
-          <label className="flex items-center gap-2 text-sm md:col-span-2"><input type="checkbox" checked={Boolean(value.crossTimezone)} onChange={(event) => update('crossTimezone', event.target.checked)} />{t('crossTimezone')}</label>
-          <DialogFooter className="md:col-span-2"><Button type="button" variant="outline" onClick={onClose}>{t('cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('saving') : t('save')}</Button></DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AirportEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }: {
-  open: boolean;
-  value: Partial<AirportDictionary> | null;
-  saving: boolean;
-  t: (key: string) => string;
-  onChange: (value: Partial<AirportDictionary> | null) => void;
-  onClose: () => void;
-  onSubmit: (event: FormEvent) => void;
-}) {
-  if (!value) return null;
-  const update = (key: keyof AirportDictionary, nextValue: string | number) => onChange({ ...value, [key]: nextValue });
-  return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader><DialogTitle>{value.id ? t('editAirport') : t('addAirport')}</DialogTitle><DialogDescription>{t('airportTimezoneDescription')}</DialogDescription></DialogHeader>
-        <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={onSubmit}>
-          <FormField label="IATA"><Input required value={value.iataCode ?? ''} onChange={(event) => update('iataCode', event.target.value)} /></FormField>
-          <FormField label={t('nameZh')}><Input required value={value.nameZh ?? ''} onChange={(event) => update('nameZh', event.target.value)} /></FormField>
-          <FormField label={t('nameEn')}><Input required value={value.nameEn ?? ''} onChange={(event) => update('nameEn', event.target.value)} /></FormField>
-          <FormField label={t('timezoneName')}><Input required value={value.timezoneName ?? ''} onChange={(event) => update('timezoneName', event.target.value)} /></FormField>
-          <FormField label={t('utcOffsetMinutes')}><Input type="number" value={value.utcOffsetMinutes ?? 0} onChange={(event) => update('utcOffsetMinutes', Number(event.target.value))} /></FormField>
-          <FormField label={t('countryCode')}><Input value={value.countryCode ?? ''} onChange={(event) => update('countryCode', event.target.value)} /></FormField>
-          <FormField label={t('status')}><Input value={value.status ?? ''} onChange={(event) => update('status', event.target.value)} /></FormField>
-          <DialogFooter className="md:col-span-2"><Button type="button" variant="outline" onClick={onClose}>{t('cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('saving') : t('save')}</Button></DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AircraftEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }: {
-  open: boolean;
-  value: Partial<AircraftRegistry> | null;
-  saving: boolean;
-  t: (key: string) => string;
-  onChange: (value: Partial<AircraftRegistry> | null) => void;
-  onClose: () => void;
-  onSubmit: (event: FormEvent) => void;
-}) {
-  if (!value) return null;
-  const update = (key: keyof AircraftRegistry, nextValue: string | number | null) => onChange({ ...value, [key]: nextValue });
-  return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader><DialogTitle>{value.id ? t('editAircraft') : t('addAircraft')}</DialogTitle><DialogDescription>{t('aircraftRegistryDescription')}</DialogDescription></DialogHeader>
-        <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={onSubmit}>
-          <FormField label={t('aircraftNo')}><Input required value={value.aircraftNo ?? ''} onChange={(event) => update('aircraftNo', event.target.value)} /></FormField>
-          <FormField label={t('aircraftType')}><Input required value={value.aircraftType ?? ''} onChange={(event) => update('aircraftType', event.target.value)} /></FormField>
-          <FormField label={t('fleet')}><Input value={value.fleet ?? ''} onChange={(event) => update('fleet', event.target.value)} /></FormField>
-          <FormField label={t('base')}><Input value={value.baseAirport ?? ''} onChange={(event) => update('baseAirport', event.target.value)} /></FormField>
-          <FormField label={t('seatCount')}><Input type="number" value={value.seatCount ?? 0} onChange={(event) => update('seatCount', Number(event.target.value))} /></FormField>
-          <FormField label={t('maxPayload')}><Input type="number" value={value.maxPayload ?? ''} onChange={(event) => update('maxPayload', event.target.value === '' ? null : Number(event.target.value))} /></FormField>
-          <FormField label={t('status')}><Input value={value.status ?? ''} onChange={(event) => update('status', event.target.value)} /></FormField>
-          <DialogFooter className="md:col-span-2"><Button type="button" variant="outline" onClick={onClose}>{t('cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('saving') : t('save')}</Button></DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-interface FlightRouteRow {
-  route: string;
-  departureAirport: string;
-  arrivalAirport: string;
-  flightCount: number;
-  averageDurationHours: string;
-}
-
-interface AircraftResourceRow {
-  aircraftType: string;
-  crewCount: number;
-  captainCount: number;
-  foCount: number;
-}
-
-function buildRouteRows(items: TaskPlanItem[]): FlightRouteRow[] {
-  const routeMap = new Map<string, { departureAirport: string; arrivalAirport: string; durations: number[] }>();
-  items.forEach((item) => {
-    if (!item.departureAirport || !item.arrivalAirport) return;
-    const key = `${item.departureAirport}-${item.arrivalAirport}`;
-    const current = routeMap.get(key) ?? {
-      departureAirport: item.departureAirport,
-      arrivalAirport: item.arrivalAirport,
-      durations: [],
-    };
-    current.durations.push(taskDurationNumber(item));
-    routeMap.set(key, current);
-  });
-  return Array.from(routeMap.entries())
-    .map(([route, value]) => ({
-      route,
-      departureAirport: value.departureAirport,
-      arrivalAirport: value.arrivalAirport,
-      flightCount: value.durations.length,
-      averageDurationHours: average(value.durations).toFixed(1),
-    }))
-    .sort((left, right) => left.route.localeCompare(right.route));
-}
-
-function buildAircraftRows(crewRows: CrewMember[]): AircraftResourceRow[] {
-  const aircraftMap = new Map<string, AircraftResourceRow>();
-  crewRows.forEach((crew) => {
-    const current = aircraftMap.get(crew.aircraftQualification) ?? {
-      aircraftType: crew.aircraftQualification,
-      crewCount: 0,
-      captainCount: 0,
-      foCount: 0,
-    };
-    current.crewCount += 1;
-    if (crew.roleCode === 'CAPTAIN') current.captainCount += 1;
-    if (crew.roleCode === 'FIRST_OFFICER') current.foCount += 1;
-    aircraftMap.set(crew.aircraftQualification, current);
-  });
-  return Array.from(aircraftMap.values()).sort((left, right) => left.aircraftType.localeCompare(right.aircraftType));
-}
-
-function average(values: number[]) {
-  if (values.length === 0) return 0;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function taskDurationHours(item: TaskPlanItem) {
-  return taskDurationNumber(item).toFixed(1);
-}
-
-function taskDurationNumber(item: TaskPlanItem) {
-  return Math.max(0, (utcEpochMs(item.scheduledEndUtc) - utcEpochMs(item.scheduledStartUtc)) / 3_600_000);
-}
-
-function airportName(airport: AirportDictionary | undefined, language: Language) {
-  if (!airport) return '';
-  return language === 'zh-CN' ? airport.nameZh : airport.nameEn;
-}
-
-function formatUtcOffset(offsetMinutes: number) {
-  const sign = offsetMinutes >= 0 ? '+' : '-';
-  const absolute = Math.abs(offsetMinutes);
-  const hours = Math.floor(absolute / 60).toString().padStart(2, '0');
-  const minutes = (absolute % 60).toString().padStart(2, '0');
-  return `UTC${sign}${hours}:${minutes}`;
-}
-
-function formatMinutesAsHours(minutes: number) {
-  return `${(Number(minutes ?? 0) / 60).toFixed(1)}h`;
-}
-
-export function ValidationCenterPage({ activeView, t }: PageProps) {
-  return (
-    <StandardPlaceholderPage
-      icon={ShieldCheck}
-      title={t(viewTitleKey[activeView])}
-      description={t('validationDescription')}
-      t={t}
-    />
-  );
-}
-
-export function RuleCenterPage({ activeView, api, language, t }: PageProps) {
-  const [rules, setRules] = useState<RuleCatalog[]>([]);
-  const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
-  const [recentHits, setRecentHits] = useState<RuleRecentHit[]>([]);
-  const [query, setQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('ALL');
-  const [severityFilter, setSeverityFilter] = useState('ALL');
-  const [sectionFilter, setSectionFilter] = useState('ALL');
-  const [clauseFilter, setClauseFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [entryTypeFilter, setEntryTypeFilter] = useState('DISPLAY_RULE');
-  const [loading, setLoading] = useState(true);
-  const [hitsLoading, setHitsLoading] = useState(false);
-  const [savingRuleIds, setSavingRuleIds] = useState<string[]>([]);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    setLoading(true);
-    api.rules()
-      .then((items) => {
-        setRules(items);
-        setSelectedRuleId((current) => current ?? items.find((item) => item.catalogEntryType === 'DISPLAY_RULE')?.ruleId ?? items[0]?.ruleId ?? null);
-      })
-      .catch(() => setError(t('ruleCatalogLoadError')))
-      .finally(() => setLoading(false));
-  }, [api, t]);
-
-  const categories = useMemo(() => uniqueRuleValues(rules.map((rule) => rule.ruleCategory)), [rules]);
-  const severities = useMemo(() => uniqueRuleValues(rules.map((rule) => rule.severityDefault)), [rules]);
-  const sections = useMemo(() => uniqueRuleValues(rules.map((rule) => rule.sourceSection)), [rules]);
-  const clauses = useMemo(() => uniqueRuleValues(rules.map((rule) => rule.sourceClause)), [rules]);
-  const statuses = useMemo(() => uniqueRuleValues(rules.map((rule) => rule.versionStatus)), [rules]);
-  const entryTypes = useMemo(() => uniqueRuleValues(rules.map((rule) => rule.catalogEntryType)), [rules]);
-
-  const filteredRules = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return rules.filter((rule) => {
-      const haystack = [
-        rule.ruleId,
-        ruleTitle(rule, language),
-        rule.ruleCategory,
-        rule.severityDefault,
-        rule.sourceSection,
-        rule.sourceClause,
-        rule.versionStatus,
-        rule.phaseCode,
-        rule.catalogEntryType,
-        rule.displayRuleCode ?? '',
-        rule.sourceRuleIds ?? '',
-      ].join(' ').toLowerCase();
-      return (!normalizedQuery || haystack.includes(normalizedQuery))
-        && (categoryFilter === 'ALL' || rule.ruleCategory === categoryFilter)
-        && (severityFilter === 'ALL' || rule.severityDefault === severityFilter)
-        && (sectionFilter === 'ALL' || rule.sourceSection === sectionFilter)
-        && (clauseFilter === 'ALL' || rule.sourceClause === clauseFilter)
-        && (statusFilter === 'ALL' || rule.versionStatus === statusFilter)
-        && (entryTypeFilter === 'ALL' || rule.catalogEntryType === entryTypeFilter);
-    }).sort(compareRuleSeverity);
-  }, [categoryFilter, clauseFilter, entryTypeFilter, language, query, rules, sectionFilter, severityFilter, statusFilter]);
-
-  const selectedRule = useMemo(() => (
-    filteredRules.find((rule) => rule.ruleId === selectedRuleId) ?? filteredRules[0] ?? rules[0] ?? null
-  ), [filteredRules, rules, selectedRuleId]);
-
-  useEffect(() => {
-    if (!selectedRule) {
-      setRecentHits([]);
-      return;
-    }
-    setHitsLoading(true);
-    api.ruleRecentHits(selectedRule.ruleId)
-      .then(setRecentHits)
-      .catch(() => setRecentHits([]))
-      .finally(() => setHitsLoading(false));
-  }, [api, selectedRule]);
-
-  const updateRuleActive = async (rule: RuleCatalog, active: boolean) => {
-    if (rule.activationLocked && !active) {
-      return;
-    }
-    setSavingRuleIds((current) => [...current, rule.ruleId]);
-    setError('');
-    try {
-      const updated = await api.updateRuleActive(rule.ruleId, active);
-      setRules((current) => current.map((item) => (item.ruleId === updated.ruleId ? updated : item)));
-    } catch {
-      setError(t('ruleActivationUpdateError'));
-    } finally {
-      setSavingRuleIds((current) => current.filter((ruleId) => ruleId !== rule.ruleId));
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        icon={ShieldCheck}
-        title={t(viewTitleKey[activeView])}
-        description={t('ruleCenterDescription')}
-      />
-
-      <Card className="rounded-lg">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">{t('ruleFilters')}</CardTitle>
-          <CardDescription>{t('ruleCenterFilterDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
-          <Input
-            className="xl:col-span-2"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('ruleSearchPlaceholder')}
-          />
-          <RuleFilterSelect value={categoryFilter} values={categories} label={t('category')} allLabel={t('all')} onChange={setCategoryFilter} />
-          <RuleFilterSelect value={severityFilter} values={severities} label={t('severity')} allLabel={t('all')} onChange={setSeverityFilter} />
-          <RuleFilterSelect value={sectionFilter} values={sections} label={t('ruleSourceSection')} allLabel={t('all')} onChange={setSectionFilter} />
-          <RuleFilterSelect value={clauseFilter} values={clauses} label={t('ruleSourceClause')} allLabel={t('all')} onChange={setClauseFilter} />
-          <RuleFilterSelect value={statusFilter} values={statuses} label={t('status')} allLabel={t('all')} onChange={setStatusFilter} />
-          <RuleFilterSelect value={entryTypeFilter} values={entryTypes} label={t('ruleEntryType')} allLabel={t('all')} onChange={setEntryTypeFilter} />
-        </CardContent>
-      </Card>
-
-      {loading && <Card className="rounded-lg p-6 text-sm text-muted-foreground">{t('loading')}...</Card>}
-      {error && <Card className="rounded-lg p-6 text-sm text-destructive">{error}</Card>}
-      {!loading && !error && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-          <Card className="rounded-lg">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t('ruleCatalogTable')}</CardTitle>
-              <CardDescription>
-                {t('ruleCatalogTableDescription')}
-                {' '}
-                {filteredRules.length}/{rules.length}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[1120px] text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-muted-foreground">
-                      <th className="px-4 py-3 font-medium">{t('ruleId')}</th>
-                      <th className="px-4 py-3 font-medium">{t('name')}</th>
-                      <th className="px-4 py-3 font-medium">{t('category')}</th>
-                      <th className="px-4 py-3 font-medium">{t('ruleEntryType')}</th>
-                      <th className="px-4 py-3 font-medium">{t('ruleApplicability')}</th>
-                      <th className="px-4 py-3 font-medium">{t('severity')}</th>
-                      <th className="px-4 py-3 font-medium">{t('source')}</th>
-                      <th className="px-4 py-3 font-medium">{t('ruleVersion')}</th>
-                      <th className="px-4 py-3 font-medium">{t('status')}</th>
-                      <th className="px-4 py-3 font-medium">{t('ruleActivation')}</th>
-                      <th className="px-4 py-3 font-medium">{t('ruleRecentHits')}</th>
-                      <th className="px-4 py-3 font-medium">{t('ruleLatestHit')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRules.length === 0 ? (
-                      <tr>
-                        <td colSpan={12} className="px-4 py-6">
-                          <EmptyState title={t('noData')} description={t('ruleNoMatches')} />
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredRules.map((rule) => {
-                        const isSelected = selectedRule?.ruleId === rule.ruleId;
-                        return (
-                          <tr
-                            key={rule.ruleId}
-                            className={`cursor-pointer border-b border-border last:border-0 hover:bg-muted/40 ${isSelected ? 'bg-muted/50' : ''}`}
-                            onClick={() => setSelectedRuleId(rule.ruleId)}
-                          >
-                            <td className="whitespace-nowrap px-4 py-3 font-semibold">{rule.ruleId}</td>
-                            <td className="min-w-[14rem] px-4 py-3">{ruleTitle(rule, language)}</td>
-                            <td className="px-4 py-3"><Badge variant="outline">{rule.ruleCategory}</Badge></td>
-                            <td className="px-4 py-3"><RuleEntryTypeBadge entryType={rule.catalogEntryType} /></td>
-                            <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{rule.applicability}</td>
-                            <td className="px-4 py-3"><RuleSeverityBadge severity={rule.severityDefault} /></td>
-                            <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                              {rule.sourceSection} / {rule.sourceClause} / {t('page')} {rule.sourcePage}
-                            </td>
-                            <td className="whitespace-nowrap px-4 py-3">{rule.phaseCode}</td>
-                            <td className="px-4 py-3"><RuleVersionStatusBadge status={rule.versionStatus} active={rule.activeFlag} /></td>
-                            <td className="px-4 py-3">
-                              <RuleActivationSwitch
-                                rule={rule}
-                                disabled={savingRuleIds.includes(rule.ruleId)}
-                                t={t}
-                                onChange={(active) => updateRuleActive(rule, active)}
-                              />
-                            </td>
-                            <td className="px-4 py-3">{rule.hitCount}</td>
-                            <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                              {rule.latestHitAtUtc ? <Timestamp value={rule.latestHitAtUtc} /> : t('noData')}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          <RuleDetailPanel
-            rule={selectedRule}
-            recentHits={recentHits}
-            hitsLoading={hitsLoading}
-            language={language}
-            saving={selectedRule ? savingRuleIds.includes(selectedRule.ruleId) : false}
-            t={t}
-            onActiveChange={updateRuleActive}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RuleFilterSelect({
-  value,
-  values,
-  label,
-  allLabel,
-  onChange,
-}: {
-  value: string;
-  values: string[];
-  label: string;
-  allLabel: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <select
-      aria-label={label}
-      className="h-10 rounded-md border border-border bg-background px-3 text-sm"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      <option value="ALL">{allLabel} {label}</option>
-      {values.map((item) => (
-        <option key={item} value={item}>{item}</option>
-      ))}
-    </select>
-  );
-}
-
-function RuleActivationSwitch({
-  rule,
-  disabled,
-  t,
-  onChange,
-}: {
-  rule: RuleCatalog;
-  disabled: boolean;
-  t: (key: string) => string;
-  onChange: (active: boolean) => void;
-}) {
-  const lockedOff = rule.activationLocked;
-  return (
-    <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
-      <Switch
-        checked={rule.activeFlag}
-        disabled={disabled || lockedOff}
-        onCheckedChange={onChange}
-        aria-label={`${t('ruleActivation')} ${rule.ruleId}`}
-      />
-      <span className="whitespace-nowrap text-xs text-muted-foreground">
-        {lockedOff ? t('ruleActivationLocked') : rule.activeFlag ? t('active') : t('inactive')}
-      </span>
-    </div>
-  );
-}
-
-function RuleDetailPanel({
-  rule,
-  recentHits,
-  hitsLoading,
-  language,
-  saving,
-  t,
-  onActiveChange,
-}: {
-  rule: RuleCatalog | null;
-  recentHits: RuleRecentHit[];
-  hitsLoading: boolean;
-  language: Language;
-  saving: boolean;
-  t: (key: string) => string;
-  onActiveChange: (rule: RuleCatalog, active: boolean) => void;
-}) {
-  if (!rule) {
-    return (
-      <Card className="rounded-lg">
-        <CardContent className="p-6">
-          <EmptyState title={t('ruleDetail')} description={t('ruleDetailEmpty')} />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="rounded-lg">
-      <CardHeader className="pb-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-base">{rule.ruleId}</CardTitle>
-            <CardDescription>{ruleTitle(rule, language)}</CardDescription>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <RuleVersionStatusBadge status={rule.versionStatus} active={rule.activeFlag} />
-            <RuleActivationSwitch
-              rule={rule}
-              disabled={saving}
-              t={t}
-              onChange={(active) => onActiveChange(rule, active)}
-            />
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="outline">{rule.ruleCategory}</Badge>
-          <RuleSeverityBadge severity={rule.severityDefault} />
-          <Badge variant="outline">{rule.applicability}</Badge>
-        </div>
-
-        <RuleDetailSection title={t('ruleDescription')} text={localizedRuleText(rule.descriptionZh, rule.descriptionEn, language)} />
-        <RuleDetailSection title={t('ruleTriggerSummary')} text={localizedRuleText(rule.triggerSummaryZh, rule.triggerSummaryEn, language)} />
-        <RuleDetailSection title={t('ruleHandlingMethod')} text={localizedRuleText(rule.handlingMethodZh, rule.handlingMethodEn, language)} />
-        <RuleDetailSection title={t('ruleSourceRuleIds')} text={ruleSourceIdsText(rule)} />
-
-        <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-background p-3">
-          <RuleDetailFact label={t('ruleExceptionAllowed')} value={rule.exceptionAllowed ? t('yes') : t('no')} />
-          <RuleDetailFact label={t('ruleVersionStatus')} value={rule.versionStatus} />
-          <RuleDetailFact label={t('ruleEntryType')} value={rule.catalogEntryType} />
-          <RuleDetailFact label={t('source')} value={`${rule.sourceSection} / ${rule.sourceClause}`} />
-          <RuleDetailFact label={t('page')} value={`${rule.sourcePage}`} />
-          <RuleDetailFact label={t('ruleFomReference')} value={rule.pdfDeeplink ? '' : t('noData')}>
-            {rule.pdfDeeplink ? (
-              <a className="text-primary hover:underline" href={rule.pdfDeeplink} target="_blank" rel="noreferrer">
-                {t('ruleOpenFom')}
-              </a>
-            ) : null}
-          </RuleDetailFact>
-          <RuleDetailFact label={t('effectiveFrom')} value={rule.effectiveFromUtc ? '' : t('noData')}>
-            {rule.effectiveFromUtc ? <Timestamp value={rule.effectiveFromUtc} /> : null}
-          </RuleDetailFact>
-          <RuleDetailFact label={t('effectiveTo')} value={rule.effectiveToUtc ? '' : t('noData')}>
-            {rule.effectiveToUtc ? <Timestamp value={rule.effectiveToUtc} /> : null}
-          </RuleDetailFact>
-        </div>
-
-        <div className="rounded-md border border-dashed border-border bg-muted/20 p-3">
-          <div className="font-medium">{t('ruleTrial')}</div>
-          <p className="mt-1 text-muted-foreground">{t('ruleTrialPlaceholder')}</p>
-        </div>
-
-        <div>
-          <div className="font-medium">{t('ruleRecentHitCases')}</div>
-          <div className="mt-2 space-y-2">
-            {hitsLoading && <div className="text-muted-foreground">{t('loading')}...</div>}
-            {!hitsLoading && recentHits.length === 0 && (
-              <div className="rounded-md border border-border bg-background p-3 text-muted-foreground">{t('noData')}</div>
-            )}
-            {!hitsLoading && recentHits.map((hit) => (
-              <div key={hit.hitId} className="rounded-md border border-border bg-background p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="font-medium">{hit.taskCode ?? hit.targetType ?? hit.ruleId}</div>
-                  <RuleSeverityBadge severity={hit.severity} />
-                </div>
-                <div className="mt-1 text-muted-foreground">{hit.route || hit.crewName || hit.crewCode || t('noData')}</div>
-                <div className="mt-2 text-muted-foreground">{hit.message}</div>
-                <div className="mt-2">
-                  <a
-                    className="text-xs font-medium text-primary hover:underline"
-                    href={ruleHitHref(hit)}
-                  >
-                    {t('ruleOpenRelatedContext')}
-                  </a>
-                </div>
-                {(hit.evidenceWindowStartUtc || hit.evidenceWindowEndUtc) && (
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    {hit.evidenceWindowStartUtc ? <Timestamp value={hit.evidenceWindowStartUtc} /> : t('noData')}
-                    {' - '}
-                    {hit.evidenceWindowEndUtc ? <Timestamp value={hit.evidenceWindowEndUtc} /> : t('noData')}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function RuleDetailSection({ title, text }: { title: string; text: string }) {
-  return (
-    <div>
-      <div className="font-medium">{title}</div>
-      <p className="mt-1 text-muted-foreground">{text || '-'}</p>
-    </div>
-  );
-}
-
-function RuleDetailFact({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 font-medium">{children ?? value}</div>
-    </div>
-  );
-}
-
-function RuleSeverityBadge({ severity }: { severity: string }) {
-  if (severity === 'BLOCK' || severity === 'NON_COMPLIANT') {
-    return <Badge variant="destructive">{severity}</Badge>;
-  }
-  if (severity === 'WARNING' || severity === 'ALERT') {
-    return <Badge variant="outline" className="border-warning text-warning">{severity}</Badge>;
-  }
-  return <Badge variant="outline">{severity}</Badge>;
-}
-
-function RuleVersionStatusBadge({ status, active }: { status: string; active: boolean }) {
-  if (active && status === 'ACTIVE') {
-    return <Badge className="bg-success text-white">ACTIVE</Badge>;
-  }
-  return <Badge variant="outline">{status}</Badge>;
-}
-
-function RuleEntryTypeBadge({ entryType }: { entryType: string }) {
-  if (entryType === 'DISPLAY_RULE') {
-    return <Badge className="bg-primary text-primary-foreground">DISPLAY_RULE</Badge>;
-  }
-  if (entryType === 'SYSTEM_GATE') {
-    return <Badge variant="outline" className="border-warning text-warning">SYSTEM_GATE</Badge>;
-  }
-  if (entryType === 'DERIVATION') {
-    return <Badge variant="outline">DERIVATION</Badge>;
-  }
-  return <Badge variant="outline">{entryType}</Badge>;
-}
-
-function ruleTitle(rule: RuleCatalog, language: Language) {
-  return language === 'zh-CN' ? rule.titleZh : rule.titleEn;
-}
-
-function localizedRuleText(zh: string, en: string, language: Language) {
-  return language === 'zh-CN' ? zh : en;
-}
-
-function ruleSourceIdsText(rule: RuleCatalog) {
-  if (!rule.sourceRuleIds) {
-    return '-';
-  }
-  try {
-    const sourceIds = JSON.parse(rule.sourceRuleIds);
-    return Array.isArray(sourceIds) && sourceIds.length > 0 ? sourceIds.join(', ') : '-';
-  } catch {
-    return rule.sourceRuleIds;
-  }
-}
-
-function ruleHitHref(hit: RuleRecentHit) {
-  if (hit.taskId || hit.timelineBlockId) {
-    return '/rostering-workbench/draft-versions';
-  }
-  if (hit.crewId) {
-    return '/rostering-workbench/crew-view';
-  }
-  return '/rostering-workbench/draft-versions';
-}
-
-function compareRuleSeverity(left: RuleCatalog, right: RuleCatalog) {
-  const severityDiff = severityRank(left.severityDefault) - severityRank(right.severityDefault);
-  if (severityDiff !== 0) {
-    return severityDiff;
-  }
-  return left.ruleId.localeCompare(right.ruleId);
-}
-
-function severityRank(severity: string) {
-  const ranks: Record<string, number> = {
-    BLOCK: 0,
-    NON_COMPLIANT: 1,
-    WARNING: 2,
-    ALERT: 3,
-    INFO: 4,
-  };
-  return ranks[severity] ?? 99;
-}
-
-function uniqueRuleValues(values: string[]) {
-  return Array.from(new Set(values.filter(Boolean))).sort((left, right) => left.localeCompare(right));
-}
-
-function LegacyRuleCenterPage({ activeView, api, language, t }: PageProps) {
-  const [rules, setRules] = useState<RuleCatalog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    setLoading(true);
-    api.rules()
-      .then(setRules)
-      .catch(() => setError(t('ruleCatalogLoadError')))
-      .finally(() => setLoading(false));
-  }, [api, t]);
-
-  return (
-    <Card className="rounded-lg">
-      <CardHeader>
-        <CardTitle>{t(viewTitleKey[activeView])}</CardTitle>
-        <CardDescription>{t('ruleCenterDescription')}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
-        {error && <div className="text-sm text-destructive">{error}</div>}
-        {!loading && !error && (
-          <div className="space-y-3">
-            {rules.map((rule) => (
-              <div key={rule.id} className="rounded-lg border border-border bg-background p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold">{rule.ruleId}</div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {language === 'zh-CN' ? rule.titleZh : rule.titleEn}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Badge variant="outline">{rule.ruleCategory}</Badge>
-                    <Badge>{rule.severityDefault}</Badge>
-                    <Badge variant="outline">{t('ruleRecentHits')}: {rule.hitCount}</Badge>
-                  </div>
-                </div>
-                <div className="mt-3 text-sm text-muted-foreground">
-                  {t('source')}: {rule.sourceSection} / {rule.sourceClause} / Page {rule.sourcePage}
-                </div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  {t('ruleVersion')}: {rule.phaseCode} · {t('ruleLatestHit')}: {rule.latestHitAtUtc ? <Timestamp value={rule.latestHitAtUtc} /> : t('noData')}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-export function ExceptionsCdrPage({ activeView, t }: PageProps) {
-  return (
-    <StandardPlaceholderPage
-      icon={FileCheck2}
-      title={t(viewTitleKey[activeView])}
-      description={t('exceptionsDescription')}
-      t={t}
-    />
-  );
-}
-
-export function ReportsPage({ activeView, t }: PageProps) {
-  return (
-    <StandardPlaceholderPage
-      icon={FileCheck2}
-      title={t(viewTitleKey[activeView])}
-      description={t('reportsDescription')}
-      t={t}
-    />
-  );
-}
-
-export function AdminPage({ activeView, t }: PageProps) {
-  return (
-    <StandardPlaceholderPage
-      icon={Users}
-      title={t(viewTitleKey[activeView])}
-      description={t('adminDescription')}
-      t={t}
-    />
-  );
-}
-
-export function PilotPortalPage({ activeView, user, t }: PageProps) {
-  return (
-    <Card className="rounded-lg">
-      <CardHeader>
-        <CardTitle>{t(viewTitleKey[activeView])}</CardTitle>
-        <CardDescription>{user.displayName}</CardDescription>
-      </CardHeader>
-      <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {[
-          { icon: Plane, title: t('myRoster'), text: t('publishedRosterAndRest') },
-          { icon: AlertTriangle, title: t('myAlerts'), text: t('alertsAndNotices') },
-          { icon: UserRound, title: t('statusReport'), text: t('fatigueUnfitConflict') },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <div key={item.title} className="rounded-lg border border-border bg-background p-4">
-              <Icon className="mb-3 h-5 w-5 text-primary" />
-              <div className="font-medium">{item.title}</div>
-              <p className="mt-1 text-sm text-muted-foreground">{item.text}</p>
-            </div>
-          );
-        })}
-        <div className="md:col-span-3 text-sm text-muted-foreground"><Timestamp value={nowUtc()} /></div>
-      </CardContent>
-    </Card>
-  );
-}
-
-export function LegacyReferencePage({ t }: { t: (key: string) => string }) {
-  const [tab, setTab] = useState<'dashboard' | 'gantt' | 'compliance'>('dashboard');
-  return (
-    <div className="space-y-4">
-      <Card className="rounded-lg p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="font-semibold">{t('legacy')}</div>
-            <p className="text-sm text-muted-foreground">{t('visualReferenceOnly')}</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant={tab === 'dashboard' ? 'default' : 'outline'} size="sm" onClick={() => setTab('dashboard')}>Dashboard</Button>
-            <Button variant={tab === 'gantt' ? 'default' : 'outline'} size="sm" onClick={() => setTab('gantt')}>Gantt</Button>
-            <Button variant={tab === 'compliance' ? 'default' : 'outline'} size="sm" onClick={() => setTab('compliance')}>Compliance</Button>
-          </div>
-        </div>
-      </Card>
-      {tab === 'dashboard' && <OldDashboard />}
-      {tab === 'gantt' && <OldScheduleGantt />}
-      {tab === 'compliance' && <OldComplianceCheck />}
-    </div>
-  );
-}
-
-export function AccessDeniedPage({ t }: PageProps) {
-  return (
-    <Card className="rounded-lg">
-      <CardHeader>
-        <CardTitle>{t('accessDenied')}</CardTitle>
-        <CardDescription>{t('accessDeniedDescription')}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <EmptyState title={t('accessDenied')} description={t('accessDeniedDescription')} />
-      </CardContent>
-    </Card>
-  );
-}
-
-function StandardPlaceholderPage({
-  icon: Icon,
-  title,
-  description,
-  t,
-}: {
-  icon: typeof Clock;
-  title: string;
-  description: string;
-  t: (key: string) => string;
-}) {
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        icon={Icon}
-        title={title}
-        description={description}
-        actionLabel={t('refresh')}
-      />
-      <FilterBar t={t} />
-      <DataTableShell
-        columns={[t('status'), t('currentSystemTime')]}
-        rows={[]}
-        emptyState={
-          <EmptyState
-            title={t('frameworkPlaceholderTitle')}
-            description={<>{t('frameworkPlaceholder')} <Timestamp value={nowUtc()} /></>}
-          />
-        }
-      />
-    </div>
-  );
-}

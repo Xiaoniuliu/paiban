@@ -263,6 +263,12 @@ export interface SaveAssignmentDraftResponse {
   validationSummary: string;
 }
 
+export interface ClearAssignmentDraftResponse {
+  task: TaskPlanItem;
+  affectedCrewIds: number[];
+  affectedTaskIds: number[];
+}
+
 export type ValidationIssueSeverity = 'BLOCK' | 'WARNING';
 
 export interface ValidationIssue {

@@ -113,6 +113,10 @@ class ArchiveIntegrationTests {
     @Test
     void dispatcherCompletesArchiveVerticalSlice() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
+        mockMvc.perform(post("/api/archive/sync").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk());
         Long caseId = archiveCaseId();
         Long firstFormId = archiveFormId(0);
         Long secondFormId = archiveFormId(1);
@@ -168,6 +172,11 @@ class ArchiveIntegrationTests {
     void eligibleFinishedAssignedFlightGetsArchiveCaseAutomatically() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
 
+        mockMvc.perform(post("/api/archive/sync").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk());
+
         mockMvc.perform(get("/api/archive/cases").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[?(@.taskCode == 'NX8801')].archiveStatus").value(hasItem(ArchiveStatus.UNARCHIVED)));
@@ -185,6 +194,10 @@ class ArchiveIntegrationTests {
             WHERE task_code = 'NX9001'
             """
         );
+        mockMvc.perform(post("/api/archive/sync").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/archive/cases").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
@@ -195,6 +208,10 @@ class ArchiveIntegrationTests {
     void assignedDraftFlightIsHiddenFromArchiveQueue() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
         jdbcTemplate.update("UPDATE task_plan_item SET status = 'ASSIGNED_DRAFT' WHERE task_code = 'NX9001'");
+        mockMvc.perform(post("/api/archive/sync").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/archive/cases").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
@@ -222,6 +239,10 @@ class ArchiveIntegrationTests {
             WHERE batch_no = 'BATCH-2026-05-W1'
             """
         );
+        mockMvc.perform(post("/api/archive/sync").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/archive/cases").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
@@ -286,12 +307,67 @@ class ArchiveIntegrationTests {
     @Test
     void overdueCaseIsRefreshedFromDeadline() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
+        mockMvc.perform(post("/api/archive/sync").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk());
         Long caseId = archiveCaseId();
         jdbcTemplate.update("UPDATE flight_archive_case SET archive_deadline_at_utc = '2026-01-01 00:00:00' WHERE id = ?", caseId);
+
+        mockMvc.perform(post("/api/archive/sync").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/archive/cases/" + caseId).header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.archiveCase.archiveStatus").value(ArchiveStatus.OVERDUE));
+    }
+
+    @Test
+    void archivedFormIsReadOnlyEvenForDispatcher() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        mockMvc.perform(post("/api/archive/sync").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk());
+        Long firstFormId = archiveFormId(0);
+        Long secondFormId = archiveFormId(1);
+
+        mockMvc.perform(put("/api/archive/forms/" + firstFormId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(savePayload(0, false, 255)))
+            .andExpect(status().isOk());
+        mockMvc.perform(put("/api/archive/forms/" + secondFormId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(savePayload(0, true, null)))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/archive/forms/" + firstFormId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(savePayload(1, false, 260)))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void archiveQueriesDoNotCreateCasesWithoutExplicitSync() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+
+        mockMvc.perform(get("/api/archive/cases").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[?(@.taskCode == 'NX8801')]").isEmpty());
+
+        mockMvc.perform(post("/api/archive/sync").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/archive/cases").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[?(@.taskCode == 'NX8801')].archiveStatus").value(hasItem(ArchiveStatus.UNARCHIVED)));
     }
 
     private Long archiveCaseId() {

@@ -1,0 +1,1039 @@
+export function FlightOperationsPage({ activeView, api, language, timezone, t }: PageProps) {
+  const [batches, setBatches] = useState<TaskPlanImportBatch[]>([]);
+  const [items, setItems] = useState<TaskPlanItem[]>([]);
+  const [airports, setAirports] = useState<AirportDictionary[]>([]);
+  const [routes, setRoutes] = useState<FlightRoute[]>([]);
+  const [aircraftRows, setAircraftRows] = useState<AircraftRegistry[]>([]);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [activeTab, setActiveTab] = useState(() => flightOperationsInitialTab(activeView));
+  const [editingTask, setEditingTask] = useState<Partial<TaskPlanItem> | null>(null);
+  const [editingRoute, setEditingRoute] = useState<Partial<FlightRoute> | null>(null);
+  const [editingAirport, setEditingAirport] = useState<Partial<AirportDictionary> | null>(null);
+  const [editingAircraft, setEditingAircraft] = useState<Partial<AircraftRegistry> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [loadWarning, setLoadWarning] = useState('');
+
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setError('');
+    setLoadWarning('');
+    Promise.allSettled([api.taskPlanBatches(), api.taskPlanItems(), api.airports(), api.flightRoutes(), api.aircraftRegistry()])
+      .then(([batchResult, itemResult, airportResult, routeResult, aircraftResult]) => {
+        if (batchResult.status !== 'fulfilled' || itemResult.status !== 'fulfilled') {
+          setBatches([]);
+          setItems([]);
+          setAirports([]);
+          setRoutes([]);
+          setAircraftRows([]);
+          setError(t('flightOperationsLoadError'));
+          return;
+        }
+        setBatches(batchResult.value);
+        setItems(itemResult.value);
+        setAirports(airportResult.status === 'fulfilled' ? airportResult.value : []);
+        setRoutes(routeResult.status === 'fulfilled' ? routeResult.value : []);
+        setAircraftRows(aircraftResult.status === 'fulfilled' ? aircraftResult.value : []);
+        if (airportResult.status !== 'fulfilled' || routeResult.status !== 'fulfilled' || aircraftResult.status !== 'fulfilled') {
+          setLoadWarning(t('flightOperationsLoadError'));
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [api, t]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    setActiveTab(flightOperationsInitialTab(activeView));
+  }, [activeView]);
+
+  const filteredItems = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return items.filter((item) => {
+      const haystack = [
+        item.taskCode,
+        item.taskType,
+        item.departureAirport ?? '',
+        item.arrivalAirport ?? '',
+        item.status,
+      ].join(' ').toLowerCase();
+      return (!normalizedQuery || haystack.includes(normalizedQuery))
+        && (statusFilter === 'ALL' || item.status === statusFilter);
+    });
+  }, [items, query, statusFilter]);
+
+  const statusValues = useMemo(() => Array.from(new Set(items.map((item) => item.status))).sort(), [items]);
+  const airportByCode = useMemo(() => new Map(airports.map((airport) => [airport.iataCode, airport])), [airports]);
+  const canEdit = true;
+
+  const saveTask = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingTask) return;
+    setSaving(true);
+    const payload = normalizeTaskPlanItemPayload(editingTask, timezone);
+    const action = editingTask.id ? api.updateTaskPlanItem(editingTask.id, payload) : api.createTaskPlanItem(payload);
+    action.then(() => {
+      setEditingTask(null);
+      refresh();
+    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+  };
+
+  const saveRoute = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingRoute) return;
+    setSaving(true);
+    const action = editingRoute.id ? api.updateFlightRoute(editingRoute.id, editingRoute) : api.createFlightRoute(editingRoute);
+    action.then(() => {
+      setEditingRoute(null);
+      refresh();
+    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+  };
+
+  const saveAirport = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingAirport) return;
+    setSaving(true);
+    const action = editingAirport.id ? api.updateAirport(editingAirport.id, editingAirport) : api.createAirport(editingAirport);
+    action.then(() => {
+      setEditingAirport(null);
+      refresh();
+    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+  };
+
+  const saveAircraft = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingAircraft) return;
+    setSaving(true);
+    const action = editingAircraft.id ? api.updateAircraft(editingAircraft.id, editingAircraft) : api.createAircraft(editingAircraft);
+    action.then(() => {
+      setEditingAircraft(null);
+      refresh();
+    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+  };
+
+  const cancelTask = (item: TaskPlanItem) => {
+    api.cancelTaskPlanItem(item.id).then(refresh).catch(() => setError(t('saveFailed')));
+  };
+
+  const content = activeView === 'task-import-batches'
+    ? (
+      <FlightPlanOperationsPanel
+        batches={batches}
+        items={filteredItems}
+        allItems={items}
+        loading={loading}
+        error={error}
+        loadWarning={loadWarning}
+        query={query}
+        statusFilter={statusFilter}
+        statusValues={statusValues}
+        canEdit={canEdit}
+        t={t}
+        onQueryChange={setQuery}
+        onStatusFilterChange={setStatusFilter}
+        onAddTask={() => setEditingTask(defaultTaskPlanItemForm(batches[0]?.id, timezone))}
+        onEditTask={(item) => setEditingTask(taskPlanItemToForm(item, timezone))}
+        onCancelTask={cancelTask}
+      />
+    )
+    : (
+      <OperationsDataPanel
+        items={filteredItems}
+        allItems={items}
+        airports={airports}
+        airportByCode={airportByCode}
+        routes={routes}
+        aircraftRows={aircraftRows}
+        activeTab={activeTab}
+        loading={loading}
+        error={error}
+        loadWarning={loadWarning}
+        query={query}
+        statusFilter={statusFilter}
+        statusValues={statusValues}
+        language={language}
+        t={t}
+        canEdit={canEdit}
+        onTabChange={setActiveTab}
+        onQueryChange={setQuery}
+        onStatusFilterChange={setStatusFilter}
+        onAddTask={() => setEditingTask(defaultTaskPlanItemForm(batches[0]?.id, timezone))}
+        onEditTask={(item) => setEditingTask(taskPlanItemToForm(item, timezone))}
+        onCancelTask={cancelTask}
+        onAddRoute={() => setEditingRoute(defaultFlightRouteForm())}
+        onEditRoute={setEditingRoute}
+        onDisableRoute={(route) => api.disableFlightRoute(route.id).then(refresh).catch(() => setError(t('saveFailed')))}
+        onAddAirport={() => setEditingAirport(defaultAirportForm())}
+        onEditAirport={setEditingAirport}
+        onDisableAirport={(airport) => api.disableAirport(airport.id).then(refresh).catch(() => setError(t('saveFailed')))}
+        onAddAircraft={() => setEditingAircraft(defaultAircraftForm())}
+        onEditAircraft={setEditingAircraft}
+        onDisableAircraft={(aircraft) => api.disableAircraft(aircraft.id).then(refresh).catch(() => setError(t('saveFailed')))}
+      />
+    );
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        icon={Plane}
+        title={t(viewTitleKey[activeView])}
+        description={activeView === 'task-import-batches' ? t('flightPlanDescription') : t('operationsDataDescription')}
+      />
+      {content}
+      <TaskPlanItemEditDialog
+        open={editingTask !== null}
+        value={editingTask}
+        timezone={timezone}
+        saving={saving}
+        t={t}
+        onChange={setEditingTask}
+        onClose={() => setEditingTask(null)}
+        onSubmit={saveTask}
+      />
+      <FlightRouteEditDialog
+        open={editingRoute !== null}
+        value={editingRoute}
+        saving={saving}
+        t={t}
+        onChange={setEditingRoute}
+        onClose={() => setEditingRoute(null)}
+        onSubmit={saveRoute}
+      />
+      <AirportEditDialog
+        open={editingAirport !== null}
+        value={editingAirport}
+        saving={saving}
+        t={t}
+        onChange={setEditingAirport}
+        onClose={() => setEditingAirport(null)}
+        onSubmit={saveAirport}
+      />
+      <AircraftEditDialog
+        open={editingAircraft !== null}
+        value={editingAircraft}
+        saving={saving}
+        t={t}
+        onChange={setEditingAircraft}
+        onClose={() => setEditingAircraft(null)}
+        onSubmit={saveAircraft}
+      />
+    </div>
+  );
+}
+
+function FlightPlanOperationsPanel({
+  batches,
+  items,
+  allItems,
+  loading,
+  error,
+  loadWarning,
+  query,
+  statusFilter,
+  statusValues,
+  canEdit,
+  t,
+  onQueryChange,
+  onStatusFilterChange,
+  onAddTask,
+  onEditTask,
+  onCancelTask,
+}: {
+  batches: TaskPlanImportBatch[];
+  items: TaskPlanItem[];
+  allItems: TaskPlanItem[];
+  loading: boolean;
+  error: string;
+  loadWarning: string;
+  query: string;
+  statusFilter: string;
+  statusValues: string[];
+  canEdit: boolean;
+  t: (key: string) => string;
+  onQueryChange: (value: string) => void;
+  onStatusFilterChange: (value: string) => void;
+  onAddTask: () => void;
+  onEditTask: (item: TaskPlanItem) => void;
+  onCancelTask: (item: TaskPlanItem) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <FlightOperationsSummary items={allItems} batches={batches} t={t} />
+      {!error && loadWarning && <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">{loadWarning}</div>}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+        <Card className="rounded-lg">
+          <CardHeader>
+            <CardTitle className="text-base">{t('importBatches')}</CardTitle>
+            <CardDescription>{t('flightPlanBatchDescription')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
+            {error && <div className="text-sm text-destructive">{error}</div>}
+            {!loading && !error && batches.map((batch) => (
+              <div key={batch.id} className="rounded-lg border border-border bg-background p-4">
+                <div className="font-medium">{batch.batchNo}</div>
+                <div className="mt-1 text-sm text-muted-foreground">{batch.sourceName}</div>
+                <div className="mt-3 flex items-center justify-between text-xs">
+                  <Badge variant="outline">{batch.status}</Badge>
+                  <Timestamp className="text-muted-foreground" value={batch.importedAtUtc} />
+                </div>
+              </div>
+            ))}
+            {!loading && !error && batches.length === 0 && (
+              <EmptyState title={t('noData')} description={t('flightPlanNoBatch')} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-lg">
+          <CardHeader className="flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base">{t('flightPool')}</CardTitle>
+              <CardDescription>{t('flightPoolDescription')}</CardDescription>
+            </div>
+            {canEdit && <Button onClick={onAddTask}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
+          </CardHeader>
+          <CardContent>
+            <FlightOperationsFilters
+              query={query}
+              statusFilter={statusFilter}
+              statusValues={statusValues}
+              t={t}
+              onQueryChange={onQueryChange}
+              onStatusFilterChange={onStatusFilterChange}
+            />
+            <div className="mt-4">
+              <FlightPlanItemsTable
+                items={items}
+                loading={loading}
+                error={error}
+                canEdit={canEdit}
+                t={t}
+                onEdit={onEditTask}
+                onCancel={onCancelTask}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function OperationsDataPanel({
+  items,
+  allItems,
+  airports,
+  airportByCode,
+  routes,
+  aircraftRows,
+  activeTab,
+  loading,
+  error,
+  loadWarning,
+  query,
+  statusFilter,
+  statusValues,
+  language,
+  t,
+  canEdit,
+  onTabChange,
+  onQueryChange,
+  onStatusFilterChange,
+  onAddTask,
+  onEditTask,
+  onCancelTask,
+  onAddRoute,
+  onEditRoute,
+  onDisableRoute,
+  onAddAirport,
+  onEditAirport,
+  onDisableAirport,
+  onAddAircraft,
+  onEditAircraft,
+  onDisableAircraft,
+}: {
+  items: TaskPlanItem[];
+  allItems: TaskPlanItem[];
+  airports: AirportDictionary[];
+  airportByCode: Map<string, AirportDictionary>;
+  routes: FlightRoute[];
+  aircraftRows: AircraftRegistry[];
+  activeTab: string;
+  loading: boolean;
+  error: string;
+  loadWarning: string;
+  query: string;
+  statusFilter: string;
+  statusValues: string[];
+  language: Language;
+  t: (key: string) => string;
+  canEdit: boolean;
+  onTabChange: (value: string) => void;
+  onQueryChange: (value: string) => void;
+  onStatusFilterChange: (value: string) => void;
+  onAddTask: () => void;
+  onEditTask: (item: TaskPlanItem) => void;
+  onCancelTask: (item: TaskPlanItem) => void;
+  onAddRoute: () => void;
+  onEditRoute: (route: FlightRoute) => void;
+  onDisableRoute: (route: FlightRoute) => void;
+  onAddAirport: () => void;
+  onEditAirport: (airport: AirportDictionary) => void;
+  onDisableAirport: (airport: AirportDictionary) => void;
+  onAddAircraft: () => void;
+  onEditAircraft: (aircraft: AircraftRegistry) => void;
+  onDisableAircraft: (aircraft: AircraftRegistry) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <FlightOperationsSummary items={allItems} t={t} />
+      {!error && loadWarning && <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">{loadWarning}</div>}
+      <Tabs value={activeTab} onValueChange={onTabChange}>
+        <TabsList className="flex-wrap">
+          <TabsTrigger value="flights">{t('flightList')}</TabsTrigger>
+          <TabsTrigger value="routes">{t('routeManagement')}</TabsTrigger>
+          <TabsTrigger value="airports">{t('airportTimezone')}</TabsTrigger>
+          <TabsTrigger value="aircraft">{t('aircraftRegistry')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="flights">
+          <Card className="rounded-lg">
+            <CardHeader className="flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base">{t('flightList')}</CardTitle>
+                <CardDescription>{t('operationsFlightListDescription')}</CardDescription>
+              </div>
+              {canEdit && <Button onClick={onAddTask}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
+            </CardHeader>
+            <CardContent>
+              <FlightOperationsFilters
+                query={query}
+                statusFilter={statusFilter}
+                statusValues={statusValues}
+                t={t}
+                onQueryChange={onQueryChange}
+                onStatusFilterChange={onStatusFilterChange}
+              />
+              <div className="mt-4">
+                <FlightPlanItemsTable items={items} loading={loading} error={error} canEdit={canEdit} t={t} onEdit={onEditTask} onCancel={onCancelTask} />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="routes">
+          <RouteMaintenanceTable routes={routes} airportByCode={airportByCode} language={language} loading={loading} error={error} canEdit={canEdit} t={t} onAdd={onAddRoute} onEdit={onEditRoute} onDisable={onDisableRoute} />
+        </TabsContent>
+        <TabsContent value="airports">
+          <AirportMaintenanceTable airports={airports} language={language} loading={loading} error={error} canEdit={canEdit} t={t} onAdd={onAddAirport} onEdit={onEditAirport} onDisable={onDisableAirport} />
+        </TabsContent>
+        <TabsContent value="aircraft">
+          <AircraftMaintenanceTable aircraftRows={aircraftRows} loading={loading} error={error} canEdit={canEdit} t={t} onAdd={onAddAircraft} onEdit={onEditAircraft} onDisable={onDisableAircraft} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function RouteMaintenanceTable({ routes, airportByCode, language, loading, error, canEdit, t, onAdd, onEdit, onDisable }: {
+  routes: FlightRoute[];
+  airportByCode: Map<string, AirportDictionary>;
+  language: Language;
+  loading: boolean;
+  error: string;
+  canEdit: boolean;
+  t: (key: string) => string;
+  onAdd: () => void;
+  onEdit: (route: FlightRoute) => void;
+  onDisable: (route: FlightRoute) => void;
+}) {
+  return (
+    <Card className="rounded-lg">
+      <CardHeader className="flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-base">{t('routeManagement')}</CardTitle>
+          <CardDescription>{t('routeManagementDescription')}</CardDescription>
+        </div>
+        {canEdit && <Button onClick={onAdd}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
+      </CardHeader>
+      <CardContent>
+        {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
+        {error && <div className="text-sm text-destructive">{error}</div>}
+        {!loading && !error && routes.length === 0 && <EmptyState title={t('noData')} description={t('routeNoData')} />}
+        {!loading && !error && routes.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">{t('routeCode')}</th><th className="py-3 pr-4">{t('departureAirport')}</th><th className="py-3 pr-4">{t('arrivalAirport')}</th><th className="py-3 pr-4">{t('standardDuration')}</th><th className="py-3 pr-4">{t('timeDifference')}</th><th className="py-3 pr-4">{t('crossTimezone')}</th><th className="py-3 pr-4">{t('status')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
+              <tbody>{routes.map((route) => (
+                <tr key={route.id} className="border-b border-border last:border-0">
+                  <td className="py-3 pr-4 font-medium">{route.routeCode}</td>
+                  <td className="py-3 pr-4">{route.departureAirport} {airportName(airportByCode.get(route.departureAirport), language)}</td>
+                  <td className="py-3 pr-4">{route.arrivalAirport} {airportName(airportByCode.get(route.arrivalAirport), language)}</td>
+                  <td className="py-3 pr-4">{formatMinutesAsHours(route.standardDurationMinutes)}</td>
+                  <td className="py-3 pr-4">{formatUtcOffset(route.timeDifferenceMinutes)}</td>
+                  <td className="py-3 pr-4">{route.crossTimezone ? t('yes') : t('no')}</td>
+                  <td className="py-3 pr-4"><Badge variant={route.status === 'ACTIVE' ? 'outline' : 'secondary'}>{route.status}</Badge></td>
+                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} t={t} onEdit={() => onEdit(route)} onDisable={() => onDisable(route)} /></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AirportMaintenanceTable({ airports, language, loading, error, canEdit, t, onAdd, onEdit, onDisable }: {
+  airports: AirportDictionary[];
+  language: Language;
+  loading: boolean;
+  error: string;
+  canEdit: boolean;
+  t: (key: string) => string;
+  onAdd: () => void;
+  onEdit: (airport: AirportDictionary) => void;
+  onDisable: (airport: AirportDictionary) => void;
+}) {
+  return (
+    <Card className="rounded-lg">
+      <CardHeader className="flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-base">{t('airportTimezone')}</CardTitle>
+          <CardDescription>{t('airportTimezoneDescription')}</CardDescription>
+        </div>
+        {canEdit && <Button onClick={onAdd}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
+      </CardHeader>
+      <CardContent>
+        {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
+        {error && <div className="text-sm text-destructive">{error}</div>}
+        {!loading && !error && airports.length === 0 && <EmptyState title={t('noData')} description={t('airportNoData')} />}
+        {!loading && !error && airports.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[920px] text-sm">
+              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">IATA</th><th className="py-3 pr-4">{t('name')}</th><th className="py-3 pr-4">{t('timezoneName')}</th><th className="py-3 pr-4">{t('utcOffset')}</th><th className="py-3 pr-4">{t('countryCode')}</th><th className="py-3 pr-4">{t('status')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
+              <tbody>{airports.map((airport) => (
+                <tr key={airport.id} className="border-b border-border last:border-0">
+                  <td className="py-3 pr-4 font-medium">{airport.iataCode}</td>
+                  <td className="py-3 pr-4">{airportName(airport, language)}</td>
+                  <td className="py-3 pr-4">{airport.timezoneName}</td>
+                  <td className="py-3 pr-4">{formatUtcOffset(airport.utcOffsetMinutes)}</td>
+                  <td className="py-3 pr-4">{airport.countryCode}</td>
+                  <td className="py-3 pr-4"><Badge variant={airport.status === 'ACTIVE' ? 'outline' : 'secondary'}>{airport.status}</Badge></td>
+                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} t={t} onEdit={() => onEdit(airport)} onDisable={() => onDisable(airport)} /></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AircraftMaintenanceTable({ aircraftRows, loading, error, canEdit, t, onAdd, onEdit, onDisable }: {
+  aircraftRows: AircraftRegistry[];
+  loading: boolean;
+  error: string;
+  canEdit: boolean;
+  t: (key: string) => string;
+  onAdd: () => void;
+  onEdit: (aircraft: AircraftRegistry) => void;
+  onDisable: (aircraft: AircraftRegistry) => void;
+}) {
+  return (
+    <Card className="rounded-lg">
+      <CardHeader className="flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-base">{t('aircraftRegistry')}</CardTitle>
+          <CardDescription>{t('aircraftRegistryDescription')}</CardDescription>
+        </div>
+        {canEdit && <Button onClick={onAdd}><Plus className="mr-2 h-4 w-4" />{t('add')}</Button>}
+      </CardHeader>
+      <CardContent>
+        {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
+        {error && <div className="text-sm text-destructive">{error}</div>}
+        {!loading && !error && aircraftRows.length === 0 && <EmptyState title={t('noData')} description={t('aircraftNoData')} />}
+        {!loading && !error && aircraftRows.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">{t('aircraftNo')}</th><th className="py-3 pr-4">{t('aircraftType')}</th><th className="py-3 pr-4">{t('fleet')}</th><th className="py-3 pr-4">{t('base')}</th><th className="py-3 pr-4">{t('seatCount')}</th><th className="py-3 pr-4">{t('maxPayload')}</th><th className="py-3 pr-4">{t('status')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
+              <tbody>{aircraftRows.map((aircraft) => (
+                <tr key={aircraft.id} className="border-b border-border last:border-0">
+                  <td className="py-3 pr-4 font-medium">{aircraft.aircraftNo}</td>
+                  <td className="py-3 pr-4">{aircraft.aircraftType}</td>
+                  <td className="py-3 pr-4">{aircraft.fleet}</td>
+                  <td className="py-3 pr-4">{aircraft.baseAirport}</td>
+                  <td className="py-3 pr-4">{aircraft.seatCount}</td>
+                  <td className="py-3 pr-4">{aircraft.maxPayload ?? '-'}</td>
+                  <td className="py-3 pr-4"><Badge variant={aircraft.status === 'ACTIVE' ? 'outline' : 'secondary'}>{aircraft.status}</Badge></td>
+                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} t={t} onEdit={() => onEdit(aircraft)} onDisable={() => onDisable(aircraft)} /></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ActionButtons({ canEdit, t, onEdit, onDisable }: { canEdit: boolean; t: (key: string) => string; onEdit: () => void; onDisable: () => void }) {
+  if (!canEdit) return null;
+  return (
+    <div className="flex gap-2">
+      <Button size="sm" variant="outline" onClick={onEdit}><Pencil className="mr-1 h-3 w-3" />{t('edit')}</Button>
+      <Button size="sm" variant="outline" onClick={onDisable}>{t('disable')}</Button>
+    </div>
+  );
+}
+
+function FlightOperationsSummary({
+  items,
+  batches = [],
+  t,
+}: {
+  items: TaskPlanItem[];
+  batches?: TaskPlanImportBatch[];
+  t: (key: string) => string;
+}) {
+  const totalFlights = items.length;
+  const unassigned = items.filter((item) => item.status === 'UNASSIGNED').length;
+  const assigned = items.filter((item) => item.status === 'ASSIGNED' || item.status === 'PUBLISHED').length;
+  const cancelled = items.filter((item) => item.status === 'CANCELLED').length;
+  const latestBatch = batches[0];
+  const cards = [
+    { label: t('totalFlights'), value: totalFlights },
+    { label: t('unassignedFlights'), value: unassigned },
+    { label: t('assignedFlights'), value: assigned },
+    { label: t('cancelledFlights'), value: cancelled },
+  ];
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+      {cards.map((card) => (
+        <Card key={card.label} className="rounded-lg">
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">{card.label}</div>
+            <div className="mt-2 text-2xl font-semibold">{card.value}</div>
+          </CardContent>
+        </Card>
+      ))}
+      {latestBatch && (
+        <Card className="rounded-lg md:col-span-4">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <div className="text-sm text-muted-foreground">{t('latestImportBatch')}</div>
+              <div className="mt-1 font-medium">{latestBatch.batchNo} / {latestBatch.sourceName}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline">{latestBatch.status}</Badge>
+              <Timestamp className="text-sm text-muted-foreground" value={latestBatch.importedAtUtc} />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function FlightOperationsFilters({
+  query,
+  statusFilter,
+  statusValues,
+  t,
+  onQueryChange,
+  onStatusFilterChange,
+}: {
+  query: string;
+  statusFilter: string;
+  statusValues: string[];
+  t: (key: string) => string;
+  onQueryChange: (value: string) => void;
+  onStatusFilterChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 md:flex-row md:items-center">
+      <Input
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+        placeholder={t('flightSearchPlaceholder')}
+      />
+      <select
+        className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+        value={statusFilter}
+        onChange={(event) => onStatusFilterChange(event.target.value)}
+        aria-label={t('status')}
+      >
+        <option value="ALL">{t('all')} {t('status')}</option>
+        {statusValues.map((status) => (
+          <option key={status} value={status}>{status}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function FlightPlanItemsTable({
+  items,
+  loading,
+  error,
+  canEdit = false,
+  t,
+  onEdit,
+  onCancel,
+}: {
+  items: TaskPlanItem[];
+  loading: boolean;
+  error: string;
+  canEdit?: boolean;
+  t: (key: string) => string;
+  onEdit?: (item: TaskPlanItem) => void;
+  onCancel?: (item: TaskPlanItem) => void;
+}) {
+  if (loading) return <div className="text-sm text-muted-foreground">{t('loading')}...</div>;
+  if (error) return <div className="text-sm text-destructive">{error}</div>;
+  if (items.length === 0) return <EmptyState title={t('noData')} description={t('flightNoData')} />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[1080px] text-sm">
+        <thead>
+          <tr className="border-b border-border text-left text-muted-foreground">
+            <th className="py-3 pr-4">{t('flightNo')}</th>
+            <th className="py-3 pr-4">{t('taskType')}</th>
+            <th className="py-3 pr-4">{t('route')}</th>
+            <th className="py-3 pr-4">{t('aircraftType')}</th>
+            <th className="py-3 pr-4">{t('requiredCrew')}</th>
+            <th className="py-3 pr-4">{t('start')}</th>
+            <th className="py-3 pr-4">{t('end')}</th>
+            <th className="py-3 pr-4">{t('duration')}</th>
+            <th className="py-3 pr-4">{t('sectors')}</th>
+            <th className="py-3 pr-4">{t('status')}</th>
+            {canEdit && <th className="py-3 pr-4">{t('actions')}</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.id} className="border-b border-border last:border-0">
+              <td className="py-3 pr-4 font-medium">{item.taskCode}</td>
+              <td className="py-3 pr-4">{item.taskType}</td>
+              <td className="py-3 pr-4">{routeLabel(item)}</td>
+              <td className="py-3 pr-4">{item.aircraftType ?? '-'}</td>
+              <td className="py-3 pr-4">{item.requiredCrewPattern ?? '-'}</td>
+              <td className="py-3 pr-4"><Timestamp value={item.scheduledStartUtc} /></td>
+              <td className="py-3 pr-4"><Timestamp value={item.scheduledEndUtc} /></td>
+              <td className="py-3 pr-4">{taskDurationHours(item)}h</td>
+              <td className="py-3 pr-4">{item.sectorCount}</td>
+              <td className="py-3 pr-4"><Badge variant="outline">{item.status}</Badge></td>
+              {canEdit && (
+                <td className="py-3 pr-4">
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => onEdit?.(item)}><Pencil className="mr-1 h-3 w-3" />{t('edit')}</Button>
+                    <Button size="sm" variant="outline" onClick={() => onCancel?.(item)}>{t('cancelTask')}</Button>
+                  </div>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function flightOperationsInitialTab(activeView: ViewId) {
+  if (activeView === 'route-management') return 'routes';
+  if (activeView === 'aircraft-registry') return 'aircraft';
+  if (activeView === 'airport-timezone') return 'airports';
+  return 'flights';
+}
+
+function defaultTaskPlanItemForm(batchId: number | undefined, timezone: DisplayTimezone): Partial<TaskPlanItem> {
+  const start = addUtcHours(nowUtc(), 24);
+  const end = addUtcHours(start, 5);
+  return {
+    batchId,
+    taskCode: '',
+    taskType: 'FLIGHT',
+    titleZh: '',
+    titleEn: '',
+    departureAirport: 'MFM',
+    arrivalAirport: '',
+    scheduledStartUtc: toDisplayDateTimeLocal(start, timezone),
+    scheduledEndUtc: toDisplayDateTimeLocal(end, timezone),
+    sectorCount: 1,
+    aircraftType: 'A330',
+    aircraftNo: '',
+    requiredCrewPattern: 'PIC+FO',
+    status: 'UNASSIGNED',
+    sourceStatus: 'MANUAL',
+  };
+}
+
+function taskPlanItemToForm(item: TaskPlanItem, timezone: DisplayTimezone): Partial<TaskPlanItem> {
+  return {
+    ...item,
+    scheduledStartUtc: toDisplayDateTimeLocal(item.scheduledStartUtc, timezone),
+    scheduledEndUtc: toDisplayDateTimeLocal(item.scheduledEndUtc, timezone),
+  };
+}
+
+function normalizeTaskPlanItemPayload(item: Partial<TaskPlanItem>, timezone: DisplayTimezone): Partial<TaskPlanItem> {
+  return {
+    ...item,
+    scheduledStartUtc: item.scheduledStartUtc ? displayDateTimeLocalToUtcIso(item.scheduledStartUtc, timezone) : item.scheduledStartUtc,
+    scheduledEndUtc: item.scheduledEndUtc ? displayDateTimeLocalToUtcIso(item.scheduledEndUtc, timezone) : item.scheduledEndUtc,
+  };
+}
+
+function defaultFlightRouteForm(): Partial<FlightRoute> {
+  return {
+    routeCode: '',
+    departureAirport: 'MFM',
+    arrivalAirport: '',
+    standardDurationMinutes: 300,
+    timeDifferenceMinutes: 0,
+    crossTimezone: false,
+    status: 'ACTIVE',
+  };
+}
+
+function defaultAirportForm(): Partial<AirportDictionary> {
+  return {
+    iataCode: '',
+    nameZh: '',
+    nameEn: '',
+    timezoneName: 'Asia/Macau',
+    utcOffsetMinutes: 480,
+    countryCode: '',
+    status: 'ACTIVE',
+  };
+}
+
+function defaultAircraftForm(): Partial<AircraftRegistry> {
+  return {
+    aircraftNo: '',
+    aircraftType: 'A330',
+    fleet: 'A330',
+    baseAirport: 'MFM',
+    seatCount: 0,
+    maxPayload: null,
+    status: 'ACTIVE',
+  };
+}
+
+function TaskPlanItemEditDialog({ open, value, timezone, saving, t, onChange, onClose, onSubmit }: {
+  open: boolean;
+  value: Partial<TaskPlanItem> | null;
+  timezone: DisplayTimezone;
+  saving: boolean;
+  t: (key: string) => string;
+  onChange: (value: Partial<TaskPlanItem> | null) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  if (!value) return null;
+  const update = (key: keyof TaskPlanItem, nextValue: string | number | null | undefined) => onChange({ ...value, [key]: nextValue });
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader><DialogTitle>{value.id ? t('editFlight') : t('addFlight')}</DialogTitle><DialogDescription>{t('flightPoolDescription')}</DialogDescription></DialogHeader>
+        <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={onSubmit}>
+          <FormField label={t('flightNo')}><Input required value={value.taskCode ?? ''} onChange={(event) => update('taskCode', event.target.value)} /></FormField>
+          <FormField label={t('taskType')}><Input value={value.taskType ?? 'FLIGHT'} onChange={(event) => update('taskType', event.target.value)} /></FormField>
+          <FormField label={t('departureAirport')}><Input value={value.departureAirport ?? ''} onChange={(event) => update('departureAirport', event.target.value)} /></FormField>
+          <FormField label={t('arrivalAirport')}><Input value={value.arrivalAirport ?? ''} onChange={(event) => update('arrivalAirport', event.target.value)} /></FormField>
+          <FormField label={t('start')}><Input required type="datetime-local" value={value.scheduledStartUtc ?? ''} onChange={(event) => update('scheduledStartUtc', event.target.value)} /></FormField>
+          <FormField label={t('end')}><Input required type="datetime-local" value={value.scheduledEndUtc ?? ''} onChange={(event) => update('scheduledEndUtc', event.target.value)} /></FormField>
+          <FormField label={t('aircraftType')}><Input value={value.aircraftType ?? ''} onChange={(event) => update('aircraftType', event.target.value)} /></FormField>
+          <FormField label={t('aircraftNo')}><Input value={value.aircraftNo ?? ''} onChange={(event) => update('aircraftNo', event.target.value)} /></FormField>
+          <FormField label={t('requiredCrew')}><Input value={value.requiredCrewPattern ?? ''} onChange={(event) => update('requiredCrewPattern', event.target.value)} /></FormField>
+          <FormField label={t('sectors')}><Input type="number" value={value.sectorCount ?? 1} onChange={(event) => update('sectorCount', Number(event.target.value))} /></FormField>
+          <FormField label={t('status')}><Input value={value.status ?? ''} onChange={(event) => update('status', event.target.value)} /></FormField>
+          <FormField label={t('sourceStatus')}><Input value={value.sourceStatus ?? ''} onChange={(event) => update('sourceStatus', event.target.value)} /></FormField>
+          <div className="md:col-span-2 text-xs text-muted-foreground">{t('timezone')}: {timezone}</div>
+          <DialogFooter className="md:col-span-2"><Button type="button" variant="outline" onClick={onClose}>{t('cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('saving') : t('save')}</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FlightRouteEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }: {
+  open: boolean;
+  value: Partial<FlightRoute> | null;
+  saving: boolean;
+  t: (key: string) => string;
+  onChange: (value: Partial<FlightRoute> | null) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  if (!value) return null;
+  const update = (key: keyof FlightRoute, nextValue: string | number | boolean) => onChange({ ...value, [key]: nextValue });
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader><DialogTitle>{value.id ? t('editRoute') : t('addRoute')}</DialogTitle><DialogDescription>{t('routeManagementDescription')}</DialogDescription></DialogHeader>
+        <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={onSubmit}>
+          <FormField label={t('routeCode')}><Input required value={value.routeCode ?? ''} onChange={(event) => update('routeCode', event.target.value)} /></FormField>
+          <FormField label={t('departureAirport')}><Input required value={value.departureAirport ?? ''} onChange={(event) => update('departureAirport', event.target.value)} /></FormField>
+          <FormField label={t('arrivalAirport')}><Input required value={value.arrivalAirport ?? ''} onChange={(event) => update('arrivalAirport', event.target.value)} /></FormField>
+          <FormField label={t('standardDurationMinutes')}><Input type="number" value={value.standardDurationMinutes ?? 0} onChange={(event) => update('standardDurationMinutes', Number(event.target.value))} /></FormField>
+          <FormField label={t('timeDifferenceMinutes')}><Input type="number" value={value.timeDifferenceMinutes ?? 0} onChange={(event) => update('timeDifferenceMinutes', Number(event.target.value))} /></FormField>
+          <FormField label={t('status')}><Input value={value.status ?? ''} onChange={(event) => update('status', event.target.value)} /></FormField>
+          <label className="flex items-center gap-2 text-sm md:col-span-2"><input type="checkbox" checked={Boolean(value.crossTimezone)} onChange={(event) => update('crossTimezone', event.target.checked)} />{t('crossTimezone')}</label>
+          <DialogFooter className="md:col-span-2"><Button type="button" variant="outline" onClick={onClose}>{t('cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('saving') : t('save')}</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AirportEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }: {
+  open: boolean;
+  value: Partial<AirportDictionary> | null;
+  saving: boolean;
+  t: (key: string) => string;
+  onChange: (value: Partial<AirportDictionary> | null) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  if (!value) return null;
+  const update = (key: keyof AirportDictionary, nextValue: string | number) => onChange({ ...value, [key]: nextValue });
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader><DialogTitle>{value.id ? t('editAirport') : t('addAirport')}</DialogTitle><DialogDescription>{t('airportTimezoneDescription')}</DialogDescription></DialogHeader>
+        <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={onSubmit}>
+          <FormField label="IATA"><Input required value={value.iataCode ?? ''} onChange={(event) => update('iataCode', event.target.value)} /></FormField>
+          <FormField label={t('nameZh')}><Input required value={value.nameZh ?? ''} onChange={(event) => update('nameZh', event.target.value)} /></FormField>
+          <FormField label={t('nameEn')}><Input required value={value.nameEn ?? ''} onChange={(event) => update('nameEn', event.target.value)} /></FormField>
+          <FormField label={t('timezoneName')}><Input required value={value.timezoneName ?? ''} onChange={(event) => update('timezoneName', event.target.value)} /></FormField>
+          <FormField label={t('utcOffsetMinutes')}><Input type="number" value={value.utcOffsetMinutes ?? 0} onChange={(event) => update('utcOffsetMinutes', Number(event.target.value))} /></FormField>
+          <FormField label={t('countryCode')}><Input value={value.countryCode ?? ''} onChange={(event) => update('countryCode', event.target.value)} /></FormField>
+          <FormField label={t('status')}><Input value={value.status ?? ''} onChange={(event) => update('status', event.target.value)} /></FormField>
+          <DialogFooter className="md:col-span-2"><Button type="button" variant="outline" onClick={onClose}>{t('cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('saving') : t('save')}</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AircraftEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }: {
+  open: boolean;
+  value: Partial<AircraftRegistry> | null;
+  saving: boolean;
+  t: (key: string) => string;
+  onChange: (value: Partial<AircraftRegistry> | null) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  if (!value) return null;
+  const update = (key: keyof AircraftRegistry, nextValue: string | number | null) => onChange({ ...value, [key]: nextValue });
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader><DialogTitle>{value.id ? t('editAircraft') : t('addAircraft')}</DialogTitle><DialogDescription>{t('aircraftRegistryDescription')}</DialogDescription></DialogHeader>
+        <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={onSubmit}>
+          <FormField label={t('aircraftNo')}><Input required value={value.aircraftNo ?? ''} onChange={(event) => update('aircraftNo', event.target.value)} /></FormField>
+          <FormField label={t('aircraftType')}><Input required value={value.aircraftType ?? ''} onChange={(event) => update('aircraftType', event.target.value)} /></FormField>
+          <FormField label={t('fleet')}><Input value={value.fleet ?? ''} onChange={(event) => update('fleet', event.target.value)} /></FormField>
+          <FormField label={t('base')}><Input value={value.baseAirport ?? ''} onChange={(event) => update('baseAirport', event.target.value)} /></FormField>
+          <FormField label={t('seatCount')}><Input type="number" value={value.seatCount ?? 0} onChange={(event) => update('seatCount', Number(event.target.value))} /></FormField>
+          <FormField label={t('maxPayload')}><Input type="number" value={value.maxPayload ?? ''} onChange={(event) => update('maxPayload', event.target.value === '' ? null : Number(event.target.value))} /></FormField>
+          <FormField label={t('status')}><Input value={value.status ?? ''} onChange={(event) => update('status', event.target.value)} /></FormField>
+          <DialogFooter className="md:col-span-2"><Button type="button" variant="outline" onClick={onClose}>{t('cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('saving') : t('save')}</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface FlightRouteRow {
+  route: string;
+  departureAirport: string;
+  arrivalAirport: string;
+  flightCount: number;
+  averageDurationHours: string;
+}
+
+interface AircraftResourceRow {
+  aircraftType: string;
+  crewCount: number;
+  captainCount: number;
+  foCount: number;
+}
+
+function buildRouteRows(items: TaskPlanItem[]): FlightRouteRow[] {
+  const routeMap = new Map<string, { departureAirport: string; arrivalAirport: string; durations: number[] }>();
+  items.forEach((item) => {
+    if (!item.departureAirport || !item.arrivalAirport) return;
+    const key = `${item.departureAirport}-${item.arrivalAirport}`;
+    const current = routeMap.get(key) ?? {
+      departureAirport: item.departureAirport,
+      arrivalAirport: item.arrivalAirport,
+      durations: [],
+    };
+    current.durations.push(taskDurationNumber(item));
+    routeMap.set(key, current);
+  });
+  return Array.from(routeMap.entries())
+    .map(([route, value]) => ({
+      route,
+      departureAirport: value.departureAirport,
+      arrivalAirport: value.arrivalAirport,
+      flightCount: value.durations.length,
+      averageDurationHours: average(value.durations).toFixed(1),
+    }))
+    .sort((left, right) => left.route.localeCompare(right.route));
+}
+
+function buildAircraftRows(crewRows: CrewMember[]): AircraftResourceRow[] {
+  const aircraftMap = new Map<string, AircraftResourceRow>();
+  crewRows.forEach((crew) => {
+    const current = aircraftMap.get(crew.aircraftQualification) ?? {
+      aircraftType: crew.aircraftQualification,
+      crewCount: 0,
+      captainCount: 0,
+      foCount: 0,
+    };
+    current.crewCount += 1;
+    if (crew.roleCode === 'CAPTAIN') current.captainCount += 1;
+    if (crew.roleCode === 'FIRST_OFFICER') current.foCount += 1;
+    aircraftMap.set(crew.aircraftQualification, current);
+  });
+  return Array.from(aircraftMap.values()).sort((left, right) => left.aircraftType.localeCompare(right.aircraftType));
+}
+
+function average(values: number[]) {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function taskDurationHours(item: TaskPlanItem) {
+  return taskDurationNumber(item).toFixed(1);
+}
+
+function taskDurationNumber(item: TaskPlanItem) {
+  return Math.max(0, (utcEpochMs(item.scheduledEndUtc) - utcEpochMs(item.scheduledStartUtc)) / 3_600_000);
+}
+
+function airportName(airport: AirportDictionary | undefined, language: Language) {
+  if (!airport) return '';
+  return language === 'zh-CN' ? airport.nameZh : airport.nameEn;
+}
+
+function formatUtcOffset(offsetMinutes: number) {
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absolute = Math.abs(offsetMinutes);
+  const hours = Math.floor(absolute / 60).toString().padStart(2, '0');
+  const minutes = (absolute % 60).toString().padStart(2, '0');
+  return `UTC${sign}${hours}:${minutes}`;
+}
+
+function formatMinutesAsHours(minutes: number) {
+  return `${(Number(minutes ?? 0) / 60).toFixed(1)}h`;
+}
+

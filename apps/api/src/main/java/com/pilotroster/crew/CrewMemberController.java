@@ -1,10 +1,13 @@
 package com.pilotroster.crew;
 
+import com.pilotroster.auth.AuthenticatedUser;
+import com.pilotroster.auth.UserRole;
 import com.pilotroster.common.ApiResponse;
 import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,7 +44,8 @@ public class CrewMemberController {
 
     @GetMapping("/{crewId}")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT')")
-    public ApiResponse<CrewMember> detail(@PathVariable Long crewId) {
+    public ApiResponse<CrewMember> detail(@PathVariable Long crewId, @AuthenticationPrincipal AuthenticatedUser user) {
+        assertCrewAccess(user, crewId);
         return ApiResponse.ok(crew(crewId));
     }
 
@@ -91,7 +95,8 @@ public class CrewMemberController {
 
     @GetMapping("/{crewId}/qualifications")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT')")
-    public ApiResponse<List<CrewQualification>> qualifications(@PathVariable Long crewId) {
+    public ApiResponse<List<CrewQualification>> qualifications(@PathVariable Long crewId, @AuthenticationPrincipal AuthenticatedUser user) {
+        assertCrewAccess(user, crewId);
         return ApiResponse.ok(crewQualificationRepository.findAllByCrewMemberIdOrderByQualificationTypeAsc(crewId));
     }
 
@@ -112,9 +117,8 @@ public class CrewMemberController {
         @RequestBody CrewQualification input
     ) {
         crew(crewId);
-        CrewQualification qualification = crewQualificationRepository.findById(qualificationId)
+        CrewQualification qualification = crewQualificationRepository.findByIdAndCrewMemberId(qualificationId, crewId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Qualification not found"));
-        qualification.setCrewMemberId(crewId);
         qualification.setQualificationType(input.getQualificationType());
         qualification.setQualificationCode(input.getQualificationCode());
         qualification.setEffectiveFromUtc(input.getEffectiveFromUtc());
@@ -127,7 +131,7 @@ public class CrewMemberController {
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
     public ApiResponse<CrewQualification> disableQualification(@PathVariable Long crewId, @PathVariable Long qualificationId) {
         crew(crewId);
-        CrewQualification qualification = crewQualificationRepository.findById(qualificationId)
+        CrewQualification qualification = crewQualificationRepository.findByIdAndCrewMemberId(qualificationId, crewId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Qualification not found"));
         qualification.setStatus("INACTIVE");
         return ApiResponse.ok(crewQualificationRepository.save(qualification));
@@ -141,7 +145,8 @@ public class CrewMemberController {
 
     @GetMapping("/{crewId}/external-work")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT')")
-    public ApiResponse<List<CrewExternalWork>> externalWork(@PathVariable Long crewId) {
+    public ApiResponse<List<CrewExternalWork>> externalWork(@PathVariable Long crewId, @AuthenticationPrincipal AuthenticatedUser user) {
+        assertCrewAccess(user, crewId);
         return ApiResponse.ok(crewExternalWorkRepository.findAllByCrewMemberIdOrderByStartUtcDesc(crewId));
     }
 
@@ -162,9 +167,8 @@ public class CrewMemberController {
         @RequestBody CrewExternalWork input
     ) {
         crew(crewId);
-        CrewExternalWork work = crewExternalWorkRepository.findById(workId)
+        CrewExternalWork work = crewExternalWorkRepository.findByIdAndCrewMemberId(workId, crewId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "External work not found"));
-        work.setCrewMemberId(crewId);
         work.setExternalType(input.getExternalType());
         work.setStartUtc(input.getStartUtc());
         work.setEndUtc(input.getEndUtc());
@@ -177,7 +181,7 @@ public class CrewMemberController {
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
     public ApiResponse<CrewExternalWork> disableExternalWork(@PathVariable Long crewId, @PathVariable Long workId) {
         crew(crewId);
-        CrewExternalWork work = crewExternalWorkRepository.findById(workId)
+        CrewExternalWork work = crewExternalWorkRepository.findByIdAndCrewMemberId(workId, crewId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "External work not found"));
         work.setStatus("INACTIVE");
         return ApiResponse.ok(crewExternalWorkRepository.save(work));
@@ -185,8 +189,15 @@ public class CrewMemberController {
 
     @GetMapping("/{crewId}/duty-calendar")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT')")
-    public ApiResponse<List<CrewExternalWork>> dutyCalendar(@PathVariable Long crewId) {
+    public ApiResponse<List<CrewExternalWork>> dutyCalendar(@PathVariable Long crewId, @AuthenticationPrincipal AuthenticatedUser user) {
+        assertCrewAccess(user, crewId);
         return ApiResponse.ok(crewExternalWorkRepository.findAllByCrewMemberIdOrderByStartUtcDesc(crewId));
+    }
+
+    private void assertCrewAccess(AuthenticatedUser user, Long crewId) {
+        if (user != null && user.role() == UserRole.PILOT && !crewId.equals(user.crewId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Pilot can only access linked crew data");
+        }
     }
 
     private CrewMember crew(Long crewId) {

@@ -5,7 +5,7 @@ React + TypeScript + Vite frontend for the pilot rostering system.
 ## Decisions
 
 - Reuses the light visual theme and UI components from `浅色系前端设计.zip`.
-- Business menus and pages follow the current FRD/Phase 1 plan, not the old zip structure.
+- Business menus and pages follow the current FRD and phased delivery plan, not the old zip structure.
 - Legacy pages are available only under `Legacy Reference`.
 - Default language is `zh-CN`; `en-US` is switchable.
 - Default display timezone is `UTC+8`; `UTC` is switchable.

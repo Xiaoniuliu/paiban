@@ -5,6 +5,7 @@ import type {
   ArchiveCaseDetail,
   ArchiveCase,
   AssignmentTaskDetail,
+  ClearAssignmentDraftResponse,
   CreateRunDayAdjustmentRequest,
   CreateCrewStatusBlockRequest,
   CrewExternalWork,
@@ -264,6 +265,12 @@ export class ApiClient {
     });
   }
 
+  async clearAssignmentDraft(taskId: number) {
+    return this.request<ClearAssignmentDraftResponse>(`/api/assignments/tasks/${taskId}/draft`, {
+      method: 'DELETE',
+    });
+  }
+
   async validationPublishSummary() {
     return this.request<ValidationPublishSummary>('/api/rostering-workbench/validation-publish');
   }
@@ -302,6 +309,13 @@ export class ApiClient {
 
   async archiveCases() {
     return this.request<ArchiveCase[]>('/api/archive/cases');
+  }
+
+  async syncArchiveState() {
+    return this.request<{ archiveCaseCount: number }>('/api/archive/sync', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   }
 
   async archiveCase(archiveCaseId: number) {

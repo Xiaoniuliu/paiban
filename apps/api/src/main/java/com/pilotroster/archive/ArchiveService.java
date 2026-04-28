@@ -2,6 +2,7 @@ package com.pilotroster.archive;
 
 import com.pilotroster.archive.ArchiveDtos.ArchiveCaseDetailResponse;
 import com.pilotroster.archive.ArchiveDtos.ArchiveCaseResponse;
+import com.pilotroster.archive.ArchiveDtos.ArchiveSyncResponse;
 import com.pilotroster.archive.ArchiveDtos.CrewArchiveFormResponse;
 import com.pilotroster.archive.ArchiveDtos.CrewArchiveSummary;
 import com.pilotroster.archive.ArchiveDtos.PilotArchiveSummaryResponse;
@@ -68,20 +69,27 @@ public class ArchiveService {
     }
 
     @Transactional
-    public List<ArchiveCaseResponse> archiveCases(AuthenticatedUser user) {
+    public ArchiveSyncResponse syncArchiveState() {
         Map<Long, TaskPlanItem> taskById = taskPlanItemRepository.findAll()
             .stream()
             .collect(Collectors.toMap(TaskPlanItem::getId, Function.identity()));
         Map<Long, List<TimelineBlock>> blocksByTaskId = timelineBlocksByTaskId();
         Instant now = Instant.now();
         syncEligibleArchiveCases(taskById, blocksByTaskId, now);
+        archiveCaseRepository.findAll().forEach(this::refreshArchiveCase);
+        return new ArchiveSyncResponse((int) archiveCaseRepository.count());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ArchiveCaseResponse> archiveCases(AuthenticatedUser user) {
+        Map<Long, TaskPlanItem> taskById = taskPlanItemRepository.findAll()
+            .stream()
+            .collect(Collectors.toMap(TaskPlanItem::getId, Function.identity()));
+        Map<Long, List<TimelineBlock>> blocksByTaskId = timelineBlocksByTaskId();
+        Instant now = Instant.now();
         return archiveCaseRepository.findAll()
             .stream()
             .filter(archiveCase -> isArchiveCaseVisible(archiveCase, taskById.get(archiveCase.getFlightId()), blocksByTaskId, now))
-            .map(archiveCase -> {
-                refreshArchiveCase(archiveCase);
-                return archiveCase;
-            })
             .sorted(Comparator.comparing((FlightArchiveCase archiveCase) -> {
                 TaskPlanItem task = taskById.get(archiveCase.getFlightId());
                 return task == null ? Instant.EPOCH : task.getScheduledStartUtc();
@@ -101,7 +109,7 @@ public class ArchiveService {
             .toList();
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public List<GanttTimelineBlockResponse> ganttTimeline(
         AuthenticatedUser user,
         Instant windowStartUtc,
@@ -117,7 +125,6 @@ public class ArchiveService {
             .collect(Collectors.toMap(TaskPlanItem::getId, Function.identity()));
         Map<Long, List<TimelineBlock>> blocksByTaskId = timelineBlocksByTaskId();
         Instant now = Instant.now();
-        syncEligibleArchiveCases(taskById, blocksByTaskId, now);
         Map<Long, FlightArchiveCase> caseByFlightId = archiveCaseRepository.findAll()
             .stream()
             .filter(archiveCase -> isArchiveCaseVisible(archiveCase, taskById.get(archiveCase.getFlightId()), blocksByTaskId, now))
@@ -229,11 +236,11 @@ public class ArchiveService {
         return task.getScheduledEndUtc();
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public ArchiveCaseDetailResponse archiveCaseDetail(Long archiveCaseId, AuthenticatedUser user) {
         FlightArchiveCase archiveCase = archiveCaseRepository.findById(archiveCaseId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Archive case not found"));
-        List<CrewArchiveForm> forms = refreshArchiveCase(archiveCase);
+        List<CrewArchiveForm> forms = crewArchiveFormRepository.findAllByArchiveCaseIdOrderByIdAsc(archiveCase.getId());
         return toArchiveCaseDetail(archiveCase, forms, user);
     }
 
@@ -247,6 +254,11 @@ public class ArchiveService {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Archive form not found"));
         if (!form.getRevision().equals(request.expectedRevision())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Archive form revision conflict");
+        }
+        FlightArchiveCase archiveCase = archiveCaseRepository.findById(form.getArchiveCaseId())
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Archive case not found"));
+        if (!canEditArchive(user, archiveCase)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Archive form is read-only");
         }
         validateActuals(request);
 
@@ -264,8 +276,6 @@ public class ArchiveService {
         );
         crewArchiveFormRepository.save(form);
 
-        FlightArchiveCase archiveCase = archiveCaseRepository.findById(form.getArchiveCaseId())
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Archive case not found"));
         List<CrewArchiveForm> forms = refreshArchiveCase(archiveCase);
         Long auditLogId = auditLogService.recordAndReturnId(
             user.id(),
