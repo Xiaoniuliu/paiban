@@ -18,6 +18,7 @@ export type MenuGroupId =
   | 'menu-crew-status'
   | 'menu-flight-operations'
   | 'menu-workbench'
+  | 'menu-legacy'
   | 'menu-validation'
   | 'menu-rule-center'
   | 'menu-exceptions-cdr'
@@ -88,7 +89,7 @@ export const menuGroups: MenuGroup[] = [
     ],
   },
   {
-    id: 'menu-workbench',
+    id: 'menu-legacy',
     icon: LayoutGrid,
     roles: operationsRoles,
     children: [
@@ -98,6 +99,13 @@ export const menuGroups: MenuGroup[] = [
       { id: 'workbench-draft-versions', roles: operationsRoles },
       { id: 'workbench-run-day-adjustments', roles: operationsRoles },
       { id: 'workbench-archive-entry', roles: operationsRoles },
+    ],
+    aliases: [
+      'validation-overview',
+      'validation-rule-hits',
+      'validation-violation-handling',
+      'validation-release-gates',
+      'validation-export',
     ],
   },
   {
@@ -110,11 +118,6 @@ export const menuGroups: MenuGroup[] = [
       'rule-versions',
       'fom-references',
       'recent-hits',
-      'validation-overview',
-      'validation-rule-hits',
-      'validation-violation-handling',
-      'validation-release-gates',
-      'validation-export',
     ],
   },
   {
