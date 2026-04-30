@@ -21,6 +21,10 @@ import { RouteMaintenanceSection } from './RouteMaintenanceSection';
 import { AirportMaintenanceSection } from './AirportMaintenanceSection';
 import { AircraftMaintenanceSection } from './AircraftMaintenanceSection';
 
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export function FlightOperationsPage({ activeView, api, language, t, user }: PageProps) {
   const [airports, setAirports] = useState<AirportDictionary[]>([]);
   const [routes, setRoutes] = useState<FlightRoute[]>([]);
@@ -34,22 +38,19 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [loadWarning, setLoadWarning] = useState('');
+  const [referenceProtectionReady, setReferenceProtectionReady] = useState(false);
 
   const refresh = useCallback(() => {
     setLoading(true);
     setError('');
     setLoadWarning('');
+    setReferenceProtectionReady(false);
     Promise.allSettled([api.airports(), api.flightRoutes(), api.aircraftRegistry(), api.taskPlanItems()])
       .then(([airportResult, routeResult, aircraftResult, taskResult]) => {
-        setAirports(airportResult.status === 'fulfilled'
-          ? airportResult.value.filter((airport) => airport.status !== 'INACTIVE')
-          : []);
-        setRoutes(routeResult.status === 'fulfilled'
-          ? routeResult.value.filter((route) => route.status !== 'INACTIVE')
-          : []);
-        setAircraftRows(aircraftResult.status === 'fulfilled'
-          ? aircraftResult.value.filter((aircraft) => aircraft.status !== 'INACTIVE')
-          : []);
+        setAirports(airportResult.status === 'fulfilled' ? airportResult.value : []);
+        setRoutes(routeResult.status === 'fulfilled' ? routeResult.value : []);
+        setAircraftRows(aircraftResult.status === 'fulfilled' ? aircraftResult.value : []);
+        setReferenceProtectionReady(taskResult.status === 'fulfilled');
         setTasks(taskResult.status === 'fulfilled'
           ? taskResult.value.filter((task) => task.status !== 'CANCELLED')
           : []);
@@ -74,6 +75,7 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
 
   const airportByCode = useMemo(() => new Map(airports.map((airport) => [airport.iataCode, airport])), [airports]);
   const canEdit = user.role === 'DISPATCHER' || user.role === 'ADMIN';
+  const actionBlockedReason = referenceProtectionReady ? t('editDeleteBlockedByReference') : t('editDeleteBlockedByMissingReferences');
 
   const saveRoute = (event: FormEvent) => {
     event.preventDefault();
@@ -83,7 +85,7 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
     action.then(() => {
       setEditingRoute(null);
       refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+    }).catch((error: unknown) => setError(errorMessage(error, t('saveFailed')))).finally(() => setSaving(false));
   };
 
   const saveAirport = (event: FormEvent) => {
@@ -94,7 +96,7 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
     action.then(() => {
       setEditingAirport(null);
       refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+    }).catch((error: unknown) => setError(errorMessage(error, t('saveFailed')))).finally(() => setSaving(false));
   };
 
   const saveAircraft = (event: FormEvent) => {
@@ -105,7 +107,7 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
     action.then(() => {
       setEditingAircraft(null);
       refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+    }).catch((error: unknown) => setError(errorMessage(error, t('saveFailed')))).finally(() => setSaving(false));
   };
 
   const referencedRouteCodes = useMemo(() => new Set(
@@ -152,6 +154,7 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
         referencedRouteCodes={referencedRouteCodes}
         referencedAircraftNos={referencedAircraftNos}
         referencedAirportCodes={referencedAirportCodes}
+        referenceProtectionReady={referenceProtectionReady}
         activeTab={activeTab}
         loading={loading}
         error={error}
@@ -159,16 +162,26 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
         language={language}
         t={t}
         canEdit={canEdit}
+        blockedReason={actionBlockedReason}
         onTabChange={setActiveTab}
         onAddRoute={() => setEditingRoute(defaultFlightRouteForm())}
         onEditRoute={setEditingRoute}
-        onDeleteRoute={(route) => api.disableFlightRoute(route.id).then(refresh).catch(() => setError(t('saveFailed')))}
+        onDeleteRoute={(route) => {
+          if (!globalThis.confirm(t('deleteRouteConfirm'))) return;
+          api.deleteFlightRoute(route.id).then(refresh).catch((error: unknown) => setError(errorMessage(error, t('saveFailed'))));
+        }}
         onAddAirport={() => setEditingAirport(defaultAirportForm())}
         onEditAirport={setEditingAirport}
-        onDeleteAirport={(airport) => api.disableAirport(airport.id).then(refresh).catch(() => setError(t('saveFailed')))}
+        onDeleteAirport={(airport) => {
+          if (!globalThis.confirm(t('deleteAirportConfirm'))) return;
+          api.deleteAirport(airport.id).then(refresh).catch((error: unknown) => setError(errorMessage(error, t('saveFailed'))));
+        }}
         onAddAircraft={() => setEditingAircraft(defaultAircraftForm())}
         onEditAircraft={setEditingAircraft}
-        onDeleteAircraft={(aircraft) => api.disableAircraft(aircraft.id).then(refresh).catch(() => setError(t('saveFailed')))}
+        onDeleteAircraft={(aircraft) => {
+          if (!globalThis.confirm(t('deleteAircraftConfirm'))) return;
+          api.deleteAircraft(aircraft.id).then(refresh).catch((error: unknown) => setError(errorMessage(error, t('saveFailed'))));
+        }}
       />
       <FlightRouteEditDialog
         open={editingRoute !== null}
@@ -211,6 +224,7 @@ function OperationsDataPanel({
   referencedRouteCodes,
   referencedAircraftNos,
   referencedAirportCodes,
+  referenceProtectionReady,
   activeTab,
   loading,
   error,
@@ -218,6 +232,7 @@ function OperationsDataPanel({
   language,
   t,
   canEdit,
+  blockedReason,
   onTabChange,
   onAddRoute,
   onEditRoute,
@@ -236,6 +251,7 @@ function OperationsDataPanel({
   referencedRouteCodes: Set<string>;
   referencedAircraftNos: Set<string>;
   referencedAirportCodes: Set<string>;
+  referenceProtectionReady: boolean;
   activeTab: string;
   loading: boolean;
   error: string;
@@ -243,6 +259,7 @@ function OperationsDataPanel({
   language: Language;
   t: (key: string) => string;
   canEdit: boolean;
+  blockedReason: string;
   onTabChange: (value: string) => void;
   onAddRoute: () => void;
   onEditRoute: (route: FlightRoute) => void;
@@ -264,13 +281,13 @@ function OperationsDataPanel({
           <TabsTrigger value="aircraft">{t('aircraftRegistry')}</TabsTrigger>
         </TabsList>
         <TabsContent value="routes">
-          <RouteMaintenanceSection routes={routes} airportByCode={airportByCode} referencedRouteCodes={referencedRouteCodes} language={language} loading={loading} error={error} canEdit={canEdit} t={t} onAdd={onAddRoute} onEdit={onEditRoute} onDelete={onDeleteRoute} />
+          <RouteMaintenanceSection routes={routes} airportByCode={airportByCode} referencedRouteCodes={referencedRouteCodes} referenceProtectionReady={referenceProtectionReady} language={language} loading={loading} error={error} canEdit={canEdit} blockedReason={blockedReason} t={t} onAdd={onAddRoute} onEdit={onEditRoute} onDelete={onDeleteRoute} />
         </TabsContent>
         <TabsContent value="airports">
-          <AirportMaintenanceSection airports={airports} referencedAirportCodes={referencedAirportCodes} language={language} loading={loading} error={error} canEdit={canEdit} t={t} onAdd={onAddAirport} onEdit={onEditAirport} onDelete={onDeleteAirport} />
+          <AirportMaintenanceSection airports={airports} referencedAirportCodes={referencedAirportCodes} referenceProtectionReady={referenceProtectionReady} language={language} loading={loading} error={error} canEdit={canEdit} blockedReason={blockedReason} t={t} onAdd={onAddAirport} onEdit={onEditAirport} onDelete={onDeleteAirport} />
         </TabsContent>
         <TabsContent value="aircraft">
-          <AircraftMaintenanceSection aircraftRows={aircraftRows} referencedAircraftNos={referencedAircraftNos} loading={loading} error={error} canEdit={canEdit} t={t} onAdd={onAddAircraft} onEdit={onEditAircraft} onDelete={onDeleteAircraft} />
+          <AircraftMaintenanceSection aircraftRows={aircraftRows} referencedAircraftNos={referencedAircraftNos} referenceProtectionReady={referenceProtectionReady} loading={loading} error={error} canEdit={canEdit} blockedReason={blockedReason} t={t} onAdd={onAddAircraft} onEdit={onEditAircraft} onDelete={onDeleteAircraft} />
         </TabsContent>
       </Tabs>
     </div>
@@ -292,7 +309,6 @@ function defaultFlightRouteForm(): Partial<FlightRoute> {
     standardDurationMinutes: 300,
     timeDifferenceMinutes: 0,
     crossTimezone: false,
-    status: 'ACTIVE',
   };
 }
 
@@ -304,7 +320,6 @@ function defaultAirportForm(): Partial<AirportDictionary> {
     timezoneName: 'Asia/Macau',
     utcOffsetMinutes: 480,
     countryCode: '',
-    status: 'ACTIVE',
   };
 }
 
@@ -316,7 +331,6 @@ function defaultAircraftForm(): Partial<AircraftRegistry> {
     baseAirport: 'MFM',
     seatCount: 0,
     maxPayload: null,
-    status: 'ACTIVE',
   };
 }
 

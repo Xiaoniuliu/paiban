@@ -28,7 +28,6 @@ export type ViewId =
   | 'crew-flight-hours'
   | 'crew-duty-calendar'
   | 'crew-status-timeline'
-  | 'crew-external-work'
   | 'flight-list'
   | 'route-management'
   | 'aircraft-registry'

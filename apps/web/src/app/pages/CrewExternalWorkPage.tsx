@@ -137,7 +137,7 @@ export function CrewExternalWorkPage({ api, language, timezone, t, user }: PageP
 
   return (
     <div className="space-y-4">
-      <PageHeader icon={Users} title={t('crew-external-work')} description={t('crewExternalWorkDescription')} />
+      <PageHeader icon={Users} title={t('crewExternalWorkLedger')} description={t('crewExternalWorkDescription')} />
       {error && <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
       {!error && loadWarning && <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">{loadWarning}</div>}
       <Card className="rounded-lg">

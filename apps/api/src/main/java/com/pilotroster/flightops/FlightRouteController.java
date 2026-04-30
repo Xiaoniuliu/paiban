@@ -41,7 +41,11 @@ public class FlightRouteController {
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
     public ApiResponse<FlightRoute> createRoute(@RequestBody FlightRoute route) {
         normalizeRoute(route);
-        return ApiResponse.ok(flightRouteRepository.save(route));
+        try {
+            return ApiResponse.ok(flightRouteRepository.saveAndFlush(route));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Route code already exists or violates master-data constraints", ex);
+        }
     }
 
     @PutMapping("/{routeId}")
@@ -58,9 +62,12 @@ public class FlightRouteController {
         route.setStandardDurationMinutes(input.getStandardDurationMinutes());
         route.setTimeDifferenceMinutes(input.getTimeDifferenceMinutes());
         route.setCrossTimezone(input.getCrossTimezone());
-        route.setStatus(input.getStatus());
         normalizeRoute(route);
-        return ApiResponse.ok(flightRouteRepository.save(route));
+        try {
+            return ApiResponse.ok(flightRouteRepository.saveAndFlush(route));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Route update violates uniqueness or master-data constraints", ex);
+        }
     }
 
     @DeleteMapping("/{routeId}")
@@ -85,7 +92,7 @@ public class FlightRouteController {
         route.setStandardDurationMinutes(route.getStandardDurationMinutes() == null ? 0 : route.getStandardDurationMinutes());
         route.setTimeDifferenceMinutes(route.getTimeDifferenceMinutes() == null ? 0 : route.getTimeDifferenceMinutes());
         route.setCrossTimezone(route.getCrossTimezone() != null && route.getCrossTimezone());
-        route.setStatus(defaultString(route.getStatus(), "ACTIVE"));
+        route.setStatus("ACTIVE");
     }
 
     private String defaultString(String value, String fallback) {

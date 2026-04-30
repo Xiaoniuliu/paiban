@@ -113,6 +113,119 @@ class OperationsMasterDataIntegrationTests {
     }
 
     @Test
+    void runDataCreateAndUpdateIgnoreRetiredStatusInputAndStayActive() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+
+        MvcResult airportResult = mockMvc.perform(post("/api/airports")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "iataCode": "TST",
+                      "nameZh": "测试机场",
+                      "nameEn": "Test Airport",
+                      "timezoneName": "Asia/Macau",
+                      "utcOffsetMinutes": 480,
+                      "countryCode": "TS",
+                      "status": "INACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+            .andReturn();
+        Long airportId = extractLong(airportResult.getResponse().getContentAsString(), "\"id\":");
+
+        mockMvc.perform(put("/api/airports/" + airportId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "iataCode": "TST",
+                      "nameZh": "测试机场更新",
+                      "nameEn": "Test Airport Updated",
+                      "timezoneName": "Asia/Macau",
+                      "utcOffsetMinutes": 480,
+                      "countryCode": "TS",
+                      "status": "INACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+
+        MvcResult routeResult = mockMvc.perform(post("/api/flight-operations/routes")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "routeCode": "MFM-TEST",
+                      "departureAirport": "MFM",
+                      "arrivalAirport": "TST",
+                      "standardDurationMinutes": 300,
+                      "timeDifferenceMinutes": 0,
+                      "crossTimezone": false,
+                      "status": "INACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+            .andReturn();
+        Long routeId = extractLong(routeResult.getResponse().getContentAsString(), "\"id\":");
+
+        mockMvc.perform(put("/api/flight-operations/routes/" + routeId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "routeCode": "MFM-TEST",
+                      "departureAirport": "MFM",
+                      "arrivalAirport": "TST",
+                      "standardDurationMinutes": 360,
+                      "timeDifferenceMinutes": 0,
+                      "crossTimezone": false,
+                      "status": "INACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+
+        MvcResult aircraftResult = mockMvc.perform(post("/api/flight-operations/aircraft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "aircraftNo": "B-TEST01",
+                      "aircraftType": "TEST-UNREF-01",
+                      "fleet": "A330F",
+                      "baseAirport": "MFM",
+                      "seatCount": 0,
+                      "maxPayload": 60.5,
+                      "status": "INACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+            .andReturn();
+        Long aircraftId = extractLong(aircraftResult.getResponse().getContentAsString(), "\"id\":");
+
+        mockMvc.perform(put("/api/flight-operations/aircraft/" + aircraftId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "aircraftNo": "B-TEST01",
+                      "aircraftType": "TEST-UNREF-01",
+                      "fleet": "A330F",
+                      "baseAirport": "MFM",
+                      "seatCount": 0,
+                      "maxPayload": 60.5,
+                      "status": "INACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+    }
+
+    @Test
     void crewResourceMasterDataCrudIncludesQualificationAndExternalWork() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
 

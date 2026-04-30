@@ -73,6 +73,7 @@ export function FlightTaskPage({ activeView, api, timezone, t, user }: PageProps
   };
 
   const deleteTask = (item: TaskPlanItem) => {
+    if (!globalThis.confirm(t('deleteFlightConfirm'))) return;
     api.cancelTaskPlanItem(item.id).then(refresh).catch(() => setError(t('saveFailed')));
   };
 

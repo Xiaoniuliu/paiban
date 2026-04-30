@@ -147,7 +147,7 @@ export class ApiClient {
     });
   }
 
-  async disableAirport(airportId: number) {
+  async deleteAirport(airportId: number) {
     return this.request<AirportDictionary>(`/api/airports/${airportId}`, { method: 'DELETE' });
   }
 
@@ -195,7 +195,7 @@ export class ApiClient {
     });
   }
 
-  async disableFlightRoute(routeId: number) {
+  async deleteFlightRoute(routeId: number) {
     return this.request<FlightRoute>(`/api/flight-operations/routes/${routeId}`, { method: 'DELETE' });
   }
 
@@ -217,7 +217,7 @@ export class ApiClient {
     });
   }
 
-  async disableAircraft(aircraftId: number) {
+  async deleteAircraft(aircraftId: number) {
     return this.request<AircraftRegistry>(`/api/flight-operations/aircraft/${aircraftId}`, { method: 'DELETE' });
   }
 
@@ -373,7 +373,19 @@ export class ApiClient {
     }
 
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`);
+      let detail = '';
+      const contentType = response.headers.get('content-type') ?? '';
+      try {
+        if (contentType.includes('application/json')) {
+          const payload = await response.json() as { message?: string; error?: string };
+          detail = payload.message ?? payload.error ?? '';
+        } else {
+          detail = await response.text();
+        }
+      } catch {
+        detail = '';
+      }
+      throw new Error(detail || `Request failed: ${response.status}`);
     }
 
     const payload = (await response.json()) as ApiResponse<T>;

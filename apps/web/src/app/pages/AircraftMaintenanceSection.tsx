@@ -1,6 +1,5 @@
 import { Plus } from 'lucide-react';
 import type { AircraftRegistry } from '../types';
-import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { EmptyState } from '../components/framework/PageShell';
@@ -9,9 +8,11 @@ import { ActionButtons } from './FlightOperationsShared';
 export function AircraftMaintenanceSection({
   aircraftRows,
   referencedAircraftNos,
+  referenceProtectionReady,
   loading,
   error,
   canEdit,
+  blockedReason,
   t,
   onAdd,
   onEdit,
@@ -19,9 +20,11 @@ export function AircraftMaintenanceSection({
 }: {
   aircraftRows: AircraftRegistry[];
   referencedAircraftNos: Set<string>;
+  referenceProtectionReady: boolean;
   loading: boolean;
   error: string;
   canEdit: boolean;
+  blockedReason: string;
   t: (key: string) => string;
   onAdd: () => void;
   onEdit: (aircraft: AircraftRegistry) => void;
@@ -43,7 +46,7 @@ export function AircraftMaintenanceSection({
         {!loading && !error && aircraftRows.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-sm">
-              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">{t('aircraftNo')}</th><th className="py-3 pr-4">{t('aircraftType')}</th><th className="py-3 pr-4">{t('fleet')}</th><th className="py-3 pr-4">{t('base')}</th><th className="py-3 pr-4">{t('seatCount')}</th><th className="py-3 pr-4">{t('maxPayload')}</th><th className="py-3 pr-4">{t('status')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
+              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">{t('aircraftNo')}</th><th className="py-3 pr-4">{t('aircraftType')}</th><th className="py-3 pr-4">{t('fleet')}</th><th className="py-3 pr-4">{t('base')}</th><th className="py-3 pr-4">{t('seatCount')}</th><th className="py-3 pr-4">{t('maxPayload')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
               <tbody>{aircraftRows.map((aircraft) => (
                 <tr key={aircraft.id} className="border-b border-border last:border-0">
                   <td className="py-3 pr-4 font-medium">{aircraft.aircraftNo}</td>
@@ -52,8 +55,7 @@ export function AircraftMaintenanceSection({
                   <td className="py-3 pr-4">{aircraft.baseAirport}</td>
                   <td className="py-3 pr-4">{aircraft.seatCount}</td>
                   <td className="py-3 pr-4">{aircraft.maxPayload ?? '-'}</td>
-                  <td className="py-3 pr-4"><Badge variant={aircraft.status === 'ACTIVE' ? 'outline' : 'secondary'}>{aircraft.status}</Badge></td>
-                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} canUpdate={!referencedAircraftNos.has(aircraft.aircraftNo)} canDelete={!referencedAircraftNos.has(aircraft.aircraftNo)} deleteBlockedReason={t('editDeleteBlockedByReference')} t={t} onEdit={() => onEdit(aircraft)} onDelete={() => onDelete(aircraft)} /></td>
+                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} canUpdate={referenceProtectionReady && !referencedAircraftNos.has(aircraft.aircraftNo)} canDelete={referenceProtectionReady && !referencedAircraftNos.has(aircraft.aircraftNo)} blockedReason={blockedReason} t={t} onEdit={() => onEdit(aircraft)} onDelete={() => onDelete(aircraft)} /></td>
                 </tr>
               ))}</tbody>
             </table>

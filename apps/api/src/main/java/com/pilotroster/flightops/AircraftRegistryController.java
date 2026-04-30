@@ -41,7 +41,11 @@ public class AircraftRegistryController {
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
     public ApiResponse<AircraftRegistry> createAircraft(@RequestBody AircraftRegistry aircraft) {
         normalizeAircraft(aircraft);
-        return ApiResponse.ok(aircraftRegistryRepository.save(aircraft));
+        try {
+            return ApiResponse.ok(aircraftRegistryRepository.saveAndFlush(aircraft));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Aircraft number already exists or violates master-data constraints", ex);
+        }
     }
 
     @PutMapping("/{aircraftId}")
@@ -58,9 +62,12 @@ public class AircraftRegistryController {
         aircraft.setBaseAirport(input.getBaseAirport());
         aircraft.setSeatCount(input.getSeatCount());
         aircraft.setMaxPayload(input.getMaxPayload());
-        aircraft.setStatus(input.getStatus());
         normalizeAircraft(aircraft);
-        return ApiResponse.ok(aircraftRegistryRepository.save(aircraft));
+        try {
+            return ApiResponse.ok(aircraftRegistryRepository.saveAndFlush(aircraft));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Aircraft update violates uniqueness or master-data constraints", ex);
+        }
     }
 
     @DeleteMapping("/{aircraftId}")
@@ -84,7 +91,7 @@ public class AircraftRegistryController {
         aircraft.setFleet(defaultString(aircraft.getFleet(), ""));
         aircraft.setBaseAirport(defaultString(aircraft.getBaseAirport(), "MFM"));
         aircraft.setSeatCount(aircraft.getSeatCount() == null ? 0 : aircraft.getSeatCount());
-        aircraft.setStatus(defaultString(aircraft.getStatus(), "ACTIVE"));
+        aircraft.setStatus("ACTIVE");
     }
 
     private String defaultString(String value, String fallback) {

@@ -1,6 +1,5 @@
 import { Plus } from 'lucide-react';
 import type { AirportDictionary, FlightRoute, Language } from '../types';
-import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { EmptyState } from '../components/framework/PageShell';
@@ -10,10 +9,12 @@ export function RouteMaintenanceSection({
   routes,
   airportByCode,
   referencedRouteCodes,
+  referenceProtectionReady,
   language,
   loading,
   error,
   canEdit,
+  blockedReason,
   t,
   onAdd,
   onEdit,
@@ -22,10 +23,12 @@ export function RouteMaintenanceSection({
   routes: FlightRoute[];
   airportByCode: Map<string, AirportDictionary>;
   referencedRouteCodes: Set<string>;
+  referenceProtectionReady: boolean;
   language: Language;
   loading: boolean;
   error: string;
   canEdit: boolean;
+  blockedReason: string;
   t: (key: string) => string;
   onAdd: () => void;
   onEdit: (route: FlightRoute) => void;
@@ -47,7 +50,7 @@ export function RouteMaintenanceSection({
         {!loading && !error && routes.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-sm">
-              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">{t('routeCode')}</th><th className="py-3 pr-4">{t('departureAirport')}</th><th className="py-3 pr-4">{t('arrivalAirport')}</th><th className="py-3 pr-4">{t('standardDuration')}</th><th className="py-3 pr-4">{t('timeDifference')}</th><th className="py-3 pr-4">{t('crossTimezone')}</th><th className="py-3 pr-4">{t('status')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
+              <thead><tr className="border-b border-border text-left text-muted-foreground"><th className="py-3 pr-4">{t('routeCode')}</th><th className="py-3 pr-4">{t('departureAirport')}</th><th className="py-3 pr-4">{t('arrivalAirport')}</th><th className="py-3 pr-4">{t('standardDuration')}</th><th className="py-3 pr-4">{t('timeDifference')}</th><th className="py-3 pr-4">{t('crossTimezone')}</th><th className="py-3 pr-4">{t('actions')}</th></tr></thead>
               <tbody>{routes.map((route) => (
                 <tr key={route.id} className="border-b border-border last:border-0">
                   <td className="py-3 pr-4 font-medium">{route.routeCode}</td>
@@ -56,8 +59,7 @@ export function RouteMaintenanceSection({
                   <td className="py-3 pr-4">{formatMinutesAsHours(route.standardDurationMinutes)}</td>
                   <td className="py-3 pr-4">{formatUtcOffset(route.timeDifferenceMinutes)}</td>
                   <td className="py-3 pr-4">{route.crossTimezone ? t('yes') : t('no')}</td>
-                  <td className="py-3 pr-4"><Badge variant={route.status === 'ACTIVE' ? 'outline' : 'secondary'}>{route.status}</Badge></td>
-                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} canUpdate={!referencedRouteCodes.has(route.routeCode)} canDelete={!referencedRouteCodes.has(route.routeCode)} deleteBlockedReason={t('editDeleteBlockedByReference')} t={t} onEdit={() => onEdit(route)} onDelete={() => onDelete(route)} /></td>
+                  <td className="py-3 pr-4"><ActionButtons canEdit={canEdit} canUpdate={referenceProtectionReady && !referencedRouteCodes.has(route.routeCode)} canDelete={referenceProtectionReady && !referencedRouteCodes.has(route.routeCode)} blockedReason={blockedReason} t={t} onEdit={() => onEdit(route)} onDelete={() => onDelete(route)} /></td>
                 </tr>
               ))}</tbody>
             </table>

@@ -152,8 +152,29 @@ class FlightOperationsDeletionIntegrationTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
-                      "aircraftNo": "B-TEST9203",
+                      "aircraftNo": "B-TEST9203-ALT",
                       "aircraftType": "A321",
+                      "fleet": "TEST",
+                      "baseAirport": "MFM",
+                      "seatCount": 260,
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isConflict());
+    }
+
+    @Test
+    void duplicateAircraftNumberReturnsConflict() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        createAircraft(token, "B-TEST9201", "TEST-DUP-9201");
+
+        mockMvc.perform(post("/api/flight-operations/aircraft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "aircraftNo": "B-TEST9201",
+                      "aircraftType": "TEST-DUP-9202",
                       "fleet": "TEST",
                       "baseAirport": "MFM",
                       "seatCount": 260,

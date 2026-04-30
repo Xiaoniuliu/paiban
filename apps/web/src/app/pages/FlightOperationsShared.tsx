@@ -16,7 +16,7 @@ export function ActionButtons({
   canEdit,
   canUpdate = true,
   canDelete = true,
-  deleteBlockedReason = '',
+  blockedReason = '',
   t,
   onEdit,
   onDelete,
@@ -24,14 +24,14 @@ export function ActionButtons({
   canEdit: boolean;
   canUpdate?: boolean;
   canDelete?: boolean;
-  deleteBlockedReason?: string;
+  blockedReason?: string;
   t: (key: string) => string;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   if (!canEdit) return null;
-  const editTitle = !canUpdate ? deleteBlockedReason : undefined;
-  const deleteTitle = !canDelete ? deleteBlockedReason : undefined;
+  const editTitle = !canUpdate ? blockedReason : undefined;
+  const deleteTitle = !canDelete ? blockedReason : undefined;
   return (
     <div className="flex gap-2">
       <span title={editTitle} className="inline-flex">

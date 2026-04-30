@@ -49,7 +49,11 @@ public class AirportDictionaryController {
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
     public ApiResponse<AirportDictionary> create(@RequestBody AirportDictionary airport) {
         normalize(airport);
-        return ApiResponse.ok(airportDictionaryRepository.save(airport));
+        try {
+            return ApiResponse.ok(airportDictionaryRepository.saveAndFlush(airport));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Airport code already exists or violates master-data constraints", ex);
+        }
     }
 
     @PutMapping("/{airportId}")
@@ -69,9 +73,12 @@ public class AirportDictionaryController {
         airport.setTimezoneName(input.getTimezoneName());
         airport.setUtcOffsetMinutes(input.getUtcOffsetMinutes());
         airport.setCountryCode(input.getCountryCode());
-        airport.setStatus(input.getStatus());
         normalize(airport);
-        return ApiResponse.ok(airportDictionaryRepository.save(airport));
+        try {
+            return ApiResponse.ok(airportDictionaryRepository.saveAndFlush(airport));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Airport update violates uniqueness or master-data constraints", ex);
+        }
     }
 
     @DeleteMapping("/{airportId}")
@@ -96,7 +103,7 @@ public class AirportDictionaryController {
 
     private void normalize(AirportDictionary airport) {
         airport.setCountryCode(defaultString(airport.getCountryCode(), ""));
-        airport.setStatus(defaultString(airport.getStatus(), "ACTIVE"));
+        airport.setStatus("ACTIVE");
     }
 
     private String defaultString(String value, String fallback) {
