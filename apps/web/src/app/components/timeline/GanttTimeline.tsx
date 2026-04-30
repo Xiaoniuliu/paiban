@@ -36,6 +36,10 @@ type TimelineRangeEvent = {
   end?: Date;
   byUser?: boolean;
 };
+
+// Phase 0 boundary rule:
+// This timeline is a display adapter only.
+// Do not add business-state authorship, workflow gating, or write actions here.
 const userRangeSyncDelayMs = 220;
 
 export function GanttTimeline({

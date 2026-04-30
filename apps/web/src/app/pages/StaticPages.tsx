@@ -24,7 +24,7 @@ import type { PageProps } from './pageTypes';
 
 export function DashboardPage({ activeView, user, t }: PageProps) {
   const stats = [
-    { label: t('menu-task-plan'), value: '1', icon: CalendarDays, tone: 'text-primary' },
+    { label: t('menu-flight-operations'), value: '1', icon: CalendarDays, tone: 'text-primary' },
     { label: t('validation-rule-hits'), value: '2', icon: AlertTriangle, tone: 'text-warning' },
     { label: t('exception-requests'), value: '0', icon: FileCheck2, tone: 'text-success' },
     { label: t('reports-archive'), value: '0', icon: Archive, tone: 'text-muted-foreground' },

@@ -1,7 +1,11 @@
 package com.pilotroster.system;
 
 import com.pilotroster.common.ApiResponse;
+import com.pilotroster.flightops.AircraftRegistryRepository;
+import com.pilotroster.flightops.FlightRouteRepository;
+import com.pilotroster.task.TaskPlanItemRepository;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,9 +23,20 @@ import org.springframework.web.server.ResponseStatusException;
 public class AirportDictionaryController {
 
     private final AirportDictionaryRepository airportDictionaryRepository;
+    private final FlightRouteRepository flightRouteRepository;
+    private final AircraftRegistryRepository aircraftRegistryRepository;
+    private final TaskPlanItemRepository taskPlanItemRepository;
 
-    public AirportDictionaryController(AirportDictionaryRepository airportDictionaryRepository) {
+    public AirportDictionaryController(
+        AirportDictionaryRepository airportDictionaryRepository,
+        FlightRouteRepository flightRouteRepository,
+        AircraftRegistryRepository aircraftRegistryRepository,
+        TaskPlanItemRepository taskPlanItemRepository
+    ) {
         this.airportDictionaryRepository = airportDictionaryRepository;
+        this.flightRouteRepository = flightRouteRepository;
+        this.aircraftRegistryRepository = aircraftRegistryRepository;
+        this.taskPlanItemRepository = taskPlanItemRepository;
     }
 
     @GetMapping
@@ -42,6 +57,12 @@ public class AirportDictionaryController {
     public ApiResponse<AirportDictionary> update(@PathVariable Long airportId, @RequestBody AirportDictionary input) {
         AirportDictionary airport = airportDictionaryRepository.findById(airportId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Airport not found"));
+        String iataCode = airport.getIataCode();
+        if (flightRouteRepository.existsByDepartureAirportOrArrivalAirport(iataCode, iataCode)
+            || aircraftRegistryRepository.existsByBaseAirport(iataCode)
+            || taskPlanItemRepository.existsByDepartureAirportOrArrivalAirport(iataCode, iataCode)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Airports referenced by routes, aircraft, or flight plans cannot be edited");
+        }
         airport.setIataCode(input.getIataCode());
         airport.setNameZh(input.getNameZh());
         airport.setNameEn(input.getNameEn());
@@ -55,11 +76,22 @@ public class AirportDictionaryController {
 
     @DeleteMapping("/{airportId}")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
-    public ApiResponse<AirportDictionary> disable(@PathVariable Long airportId) {
+    public ApiResponse<AirportDictionary> delete(@PathVariable Long airportId) {
         AirportDictionary airport = airportDictionaryRepository.findById(airportId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Airport not found"));
-        airport.setStatus("INACTIVE");
-        return ApiResponse.ok(airportDictionaryRepository.save(airport));
+        String iataCode = airport.getIataCode();
+        if (flightRouteRepository.existsByDepartureAirportOrArrivalAirport(iataCode, iataCode)
+            || aircraftRegistryRepository.existsByBaseAirport(iataCode)
+            || taskPlanItemRepository.existsByDepartureAirportOrArrivalAirport(iataCode, iataCode)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Airports referenced by routes, aircraft, or flight plans cannot be deleted");
+        }
+        try {
+            airportDictionaryRepository.delete(airport);
+            airportDictionaryRepository.flush();
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Airport still referenced by downstream data cannot be deleted", ex);
+        }
+        return ApiResponse.ok(airport);
     }
 
     private void normalize(AirportDictionary airport) {

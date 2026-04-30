@@ -1,6 +1,7 @@
 import { ChevronDown, LogOut, Menu, Plane } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { allowedMenuForRole, parentForView } from '../menu';
+import type { MenuGroupId } from '../menu';
 import { menuTitleKey, viewTitleKey } from '../i18n';
 import type { DisplayTimezone, Language, UserProfile, ViewId } from '../types';
 import { Button } from './ui/button';
@@ -32,7 +33,7 @@ export default function Layout({
 }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const menu = useMemo(() => allowedMenuForRole(user.role), [user.role]);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(() => {
+  const [expandedGroups, setExpandedGroups] = useState<MenuGroupId[]>(() => {
     const activeParent = parentForView(activeView);
     return activeParent ? [activeParent.id] : [];
   });
@@ -51,7 +52,7 @@ export default function Layout({
     );
   }, [activeView]);
 
-  const toggleGroup = (groupId: string) => {
+  const toggleGroup = (groupId: MenuGroupId) => {
     setExpandedGroups((current) =>
       current.includes(groupId) ? current.filter((item) => item !== groupId) : [...current, groupId],
     );

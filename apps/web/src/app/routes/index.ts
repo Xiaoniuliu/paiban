@@ -10,14 +10,12 @@ import {
   reportsRoutes,
   rosteringWorkbenchRoutes,
   ruleCenterRoutes,
-  taskPlanRoutes,
   validationRoutes,
 } from './moduleRoutes';
 import type { AppRoute } from './types';
 
 export const appRoutes: AppRoute[] = [
   ...dashboardRoutes,
-  ...taskPlanRoutes,
   ...crewStatusRoutes,
   ...flightOperationsRoutes,
   ...rosteringWorkbenchRoutes,

@@ -1,24 +1,24 @@
 import type { ComponentType } from 'react';
 import {
   AdminPage,
-  CrewStatusPage,
   DashboardPage,
   ExceptionsCdrPage,
   FlightOperationsPage,
+  FlightTaskPage,
   PilotPortalPage,
   ReportsPage,
   RosteringWorkbenchPage,
   RuleCenterPage,
-  TaskPlanCenterPage,
   ValidationCenterPage,
 } from '../pages/Pages';
+import { CrewStatusPage } from '../pages/CrewStatusPages';
 import { adminRoles, crewReadRoles, operationsRoles, pilotRoles } from '../permissions';
 import type { AppRoute, ModuleKey, RoutedPageProps } from './types';
 
 const dashboardPage = DashboardPage as ComponentType<RoutedPageProps>;
-const taskPlanPage = TaskPlanCenterPage as ComponentType<RoutedPageProps>;
 const crewStatusPage = CrewStatusPage as ComponentType<RoutedPageProps>;
 const flightOperationsPage = FlightOperationsPage as ComponentType<RoutedPageProps>;
+const flightTaskPage = FlightTaskPage as ComponentType<RoutedPageProps>;
 const workbenchPage = RosteringWorkbenchPage as ComponentType<RoutedPageProps>;
 const validationPage = ValidationCenterPage as ComponentType<RoutedPageProps>;
 const ruleCenterPage = RuleCenterPage as ComponentType<RoutedPageProps>;
@@ -45,14 +45,6 @@ export const dashboardRoutes: AppRoute[] = [
   route('dashboard', '/dashboard/qualification-expiry', 'dashboard-qualification-expiry', dashboardPage),
 ];
 
-export const taskPlanRoutes: AppRoute[] = [
-  route('task-plan', '/task-plan/import-batches', 'task-import-batches', taskPlanPage),
-  route('task-plan', '/task-plan/task-pool', 'task-pool', taskPlanPage),
-  route('task-plan', '/task-plan/field-mapping', 'task-field-mapping', taskPlanPage),
-  route('task-plan', '/task-plan/batch-history', 'task-batch-history', taskPlanPage),
-  route('task-plan', '/task-plan/import-validation', 'task-import-validation', taskPlanPage),
-];
-
 export const crewStatusRoutes: AppRoute[] = [
   route('crew-status', '/crew-status/crew-list', 'crew-list', crewStatusPage, crewReadRoles),
   route('crew-status', '/crew-status/crew-profile', 'crew-profile', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
@@ -60,11 +52,10 @@ export const crewStatusRoutes: AppRoute[] = [
   route('crew-status', '/crew-status/flight-hours', 'crew-flight-hours', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
   route('crew-status', '/crew-status/duty-calendar', 'crew-duty-calendar', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
   route('crew-status', '/crew-status/status-timeline', 'crew-status-timeline', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
-  route('crew-status', '/crew-status/external-work', 'crew-external-work', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
 ];
 
 export const flightOperationsRoutes: AppRoute[] = [
-  route('flight-operations', '/flight-operations/flight-plan', 'task-import-batches', flightOperationsPage),
+  route('flight-operations', '/flight-operations/flight-plan', 'task-import-batches', flightTaskPage),
   route('flight-operations', '/flight-operations/flights', 'flight-list', flightOperationsPage),
   route('flight-operations', '/flight-operations/routes', 'route-management', flightOperationsPage),
   route('flight-operations', '/flight-operations/aircraft', 'aircraft-registry', flightOperationsPage),

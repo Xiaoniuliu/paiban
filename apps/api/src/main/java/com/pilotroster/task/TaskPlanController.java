@@ -3,6 +3,7 @@ package com.pilotroster.task;
 import com.pilotroster.common.ApiResponse;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -18,6 +19,12 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/task-plan")
 public class TaskPlanController {
+
+    private static final String STATUS_UNASSIGNED = "UNASSIGNED";
+    private static final String STATUS_ASSIGNED = "ASSIGNED";
+    private static final String STATUS_ASSIGNED_DRAFT = "ASSIGNED_DRAFT";
+    private static final String STATUS_PUBLISHED = "PUBLISHED";
+    private static final String STATUS_CANCELLED = "CANCELLED";
 
     private final TaskPlanImportBatchRepository batchRepository;
     private final TaskPlanItemRepository itemRepository;
@@ -58,13 +65,26 @@ public class TaskPlanController {
     @GetMapping("/items")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN')")
     public ApiResponse<List<TaskPlanItem>> items() {
-        return ApiResponse.ok(itemRepository.findAllByOrderByScheduledStartUtcAsc());
+        List<TaskPlanItem> items = itemRepository.findAllByOrderByScheduledStartUtcAsc();
+        boolean changed = false;
+        for (TaskPlanItem item : items) {
+            String normalizedStatus = canonicalTaskStatus(item.getStatus());
+            if (!normalizedStatus.equals(item.getStatus())) {
+                item.setStatus(normalizedStatus);
+                changed = true;
+            }
+        }
+        if (changed) {
+            itemRepository.saveAll(items);
+        }
+        return ApiResponse.ok(items);
     }
 
     @PostMapping("/items")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
     public ApiResponse<TaskPlanItem> createItem(@RequestBody TaskPlanItem input) {
         normalizeItem(input);
+        input.setStatus(STATUS_UNASSIGNED);
         return ApiResponse.ok(itemRepository.save(input));
     }
 
@@ -73,9 +93,7 @@ public class TaskPlanController {
     public ApiResponse<TaskPlanItem> updateItem(@PathVariable Long itemId, @RequestBody TaskPlanItem input) {
         TaskPlanItem existing = itemRepository.findById(itemId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task plan item not found"));
-        if ("PUBLISHED".equals(existing.getStatus())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Published flights must be changed through run-day adjustments");
-        }
+        ensureEditableThroughTaskMaintenance(existing);
         existing.setBatchId(input.getBatchId());
         existing.setTaskCode(input.getTaskCode());
         existing.setTaskType(input.getTaskType());
@@ -89,22 +107,53 @@ public class TaskPlanController {
         existing.setAircraftType(input.getAircraftType());
         existing.setAircraftNo(input.getAircraftNo());
         existing.setRequiredCrewPattern(defaultString(input.getRequiredCrewPattern(), "PIC+FO"));
-        existing.setStatus(defaultString(input.getStatus(), existing.getStatus()));
-        existing.setSourceStatus(defaultString(input.getSourceStatus(), existing.getSourceStatus()));
         normalizeItem(existing);
+        existing.setStatus(STATUS_UNASSIGNED);
         return ApiResponse.ok(itemRepository.save(existing));
     }
 
     @DeleteMapping("/items/{itemId}")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
-    public ApiResponse<TaskPlanItem> cancelItem(@PathVariable Long itemId) {
+    public ApiResponse<TaskPlanItem> deleteItem(@PathVariable Long itemId) {
         TaskPlanItem existing = itemRepository.findById(itemId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task plan item not found"));
-        if ("PUBLISHED".equals(existing.getStatus())) {
+        ensureDeletableThroughTaskMaintenance(existing);
+        try {
+            itemRepository.delete(existing);
+            itemRepository.flush();
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Flights already entered downstream flow cannot be deleted", ex);
+        }
+        return ApiResponse.ok(existing);
+    }
+
+    private void ensureEditableThroughTaskMaintenance(TaskPlanItem task) {
+        String status = canonicalTaskStatus(task.getStatus());
+        if (STATUS_PUBLISHED.equals(status)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Published flights must be changed through run-day adjustments");
         }
-        existing.setStatus("CANCELLED");
-        return ApiResponse.ok(itemRepository.save(existing));
+        if (STATUS_ASSIGNED_DRAFT.equals(status)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Draft-assigned flights must be changed through draft rostering");
+        }
+        if (!STATUS_UNASSIGNED.equals(status)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only unassigned flights can be changed through task maintenance");
+        }
+    }
+
+    private void ensureDeletableThroughTaskMaintenance(TaskPlanItem task) {
+        String status = canonicalTaskStatus(task.getStatus());
+        if (STATUS_PUBLISHED.equals(status)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Published flights already entered downstream flow and cannot be deleted");
+        }
+        if (STATUS_ASSIGNED_DRAFT.equals(status)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Draft-assigned flights already entered downstream flow and cannot be deleted");
+        }
+        if (STATUS_CANCELLED.equals(status)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cancelled flights already left task maintenance and cannot be deleted");
+        }
+        if (!STATUS_UNASSIGNED.equals(status)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only unassigned flights can be deleted through task maintenance");
+        }
     }
 
     private void normalizeItem(TaskPlanItem item) {
@@ -118,12 +167,16 @@ public class TaskPlanController {
         item.setTitleZh(defaultString(item.getTitleZh(), item.getTaskCode()));
         item.setTitleEn(defaultString(item.getTitleEn(), item.getTaskCode()));
         item.setSectorCount(item.getSectorCount() == null ? 1 : item.getSectorCount());
-        item.setStatus(defaultString(item.getStatus(), "UNASSIGNED"));
-        item.setSourceStatus(defaultString(item.getSourceStatus(), "ACCEPTED"));
+        item.setStatus(canonicalTaskStatus(defaultString(item.getStatus(), STATUS_UNASSIGNED)));
+        item.setSourceStatus(defaultString(item.getSourceStatus(), "MANUAL"));
         item.setRequiredCrewPattern(defaultString(item.getRequiredCrewPattern(), "PIC+FO"));
         if (item.getScheduledStartUtc() == null || item.getScheduledEndUtc() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Scheduled start and end are required");
         }
+    }
+
+    private String canonicalTaskStatus(String status) {
+        return STATUS_ASSIGNED.equals(status) ? STATUS_ASSIGNED_DRAFT : status;
     }
 
     private String defaultString(String value, String fallback) {

@@ -14,7 +14,6 @@ import { adminRoles, crewReadRoles, operationsRoles, pilotRoles } from './permis
 
 export type MenuGroupId =
   | 'menu-dashboard'
-  | 'menu-task-plan'
   | 'menu-crew-status'
   | 'menu-flight-operations'
   | 'menu-workbench'
@@ -63,10 +62,6 @@ export const menuGroups: MenuGroup[] = [
       { id: 'flight-list', roles: operationsRoles },
     ],
     aliases: [
-      'task-pool',
-      'task-field-mapping',
-      'task-batch-history',
-      'task-import-validation',
       'route-management',
       'aircraft-registry',
       'airport-timezone',
@@ -79,7 +74,6 @@ export const menuGroups: MenuGroup[] = [
     children: [
       { id: 'crew-list', roles: crewReadRoles },
       { id: 'crew-status-timeline', roles: ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT'] },
-      { id: 'crew-external-work', roles: ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT'] },
     ],
     aliases: [
       'crew-profile',

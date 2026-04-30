@@ -4,7 +4,6 @@ import type { DisplayTimezone, Language, Role, UserProfile, ViewId } from '../ty
 
 export type ModuleKey =
   | 'dashboard'
-  | 'task-plan'
   | 'crew-status'
   | 'flight-operations'
   | 'rostering-workbench'

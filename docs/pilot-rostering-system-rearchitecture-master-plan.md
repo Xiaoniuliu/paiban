@@ -785,8 +785,10 @@ The first-stage action rules should follow these directions:
   - should become restricted once draft or published downstream artifacts already exist.
 
 - `Delete task`
-  - available only when the task is still in `待排` and deletion remains operationally safe,
-  - should not remain available once draft or published downstream artifacts already exist.
+  - means physical deletion only,
+  - is available only when the task has not yet entered downstream workflow,
+  - should remain a true physical-delete path for test data and mistaken data,
+  - is not available once draft, publish, archive, or other downstream artifacts already exist.
 
 - `Open draft rostering`
   - available when the task is schedulable and has no workflow-breaking runtime mark,
@@ -838,9 +840,12 @@ The first-stage task module should support these primary actions:
 - continue draft rostering,
 - roll back draft where allowed.
 
+Here, `delete task` means physical deletion only. It is not the same thing as cancellation.
+
 The task module may also support lightweight safe actions such as:
 
 - add or clear runtime marks where first-stage operation requires manual maintenance,
+- cancellation marking when first-stage business handling requires it, kept separate from deletion,
 - navigate to the draft or issue module when relevant.
 
 The task module should not directly support:
@@ -1017,20 +1022,19 @@ This loop should support:
 
 It exists to maintain crew availability context before assignment, not to become the main assignment editor.
 
-#### 10.2.5 Crew external work
+#### 10.2.5 External work follow-up
 
-Crew external work should remain a dedicated crew-resource sub-loop.
+External work should no longer remain in the main crew-resource path by default.
 
-Its first-stage purpose is to track crew-side work or restrictions that affect later operational availability.
+At the current stage it overlaps too heavily with crew-status maintenance while still writing to a different backend model that does not feed the same timeline truth.
 
-This loop should support:
+Current decision:
 
-- create external-work record,
-- view external-work ledger,
-- update record,
-- disable record.
-
-This data should remain owned by the crew-resource module and later consumed by assignment and issue handling, rather than being re-entered in downstream modules.
+- remove external work from the main crew-resource navigation path,
+- keep the backend `CrewExternalWork` model and APIs temporarily,
+- defer the final cleanup decision until later:
+  - either map external work into crew-status timeline truth,
+  - or retire the separate concept entirely.
 
 ### 10.3 Draft rostering module
 
@@ -1053,6 +1057,13 @@ The draft rostering module may change:
 
 - draft roster facts,
 - draft-related task state transitions.
+
+Phase 0 freeze rule:
+
+- preserve current legacy assignment semantics as the working baseline,
+- do not redesign role structure during Phase 0,
+- do not change candidate-pool business rules during Phase 0,
+- remove unstable timeline coupling in Phase 3 instead of patching assignment semantics early.
 
 The draft rostering module should not own:
 
@@ -1302,6 +1313,30 @@ These are the stable base facts that define the task itself:
 
 These fields belong to task-fact ownership and should be editable only through the task module or controlled import paths.
 
+Reference-data rule:
+
+- route, airport, and aircraft master data should be maintained in the run-data module,
+- task creation and task editing may consume those values through selection and controlled autofill,
+- current first-stage closure now concretely uses:
+  - route selection to drive departure/arrival autofill,
+  - aircraft-number selection to drive aircraft-type autofill,
+  - simple task-side CRUD without yet requiring a heavier explicit reference-key redesign,
+- reference data may be created, edited, and physically deleted when it is not referenced by any existing task,
+- once a reference record is already in use by existing tasks, it must not be physically deleted or changed in a way that breaks the task reference chain,
+- first-stage implementation should not introduce a separate disable/inactive workflow here; it should keep one clear deletion rule:
+  - unreferenced reference data may be physically deleted,
+  - referenced reference data may not be physically deleted.
+
+Deferred follow-ups for later reference-driven task entry:
+
+- add explicit task-side reference keys such as `routeId` and stable aircraft reference fields instead of relying only on copied text values,
+- keep task-side snapshot fields such as departure airport, arrival airport, and aircraft type so historical task truth does not drift when run-data records change later,
+- decide one primary aircraft selector (preferred: aircraft number) and derive the secondary aircraft fields from it,
+- define a controlled auto-fill rule for scheduled end time based on route duration and whether later manual override should suppress recalculation,
+- extend backend delete-protection checks across the full reference chain rather than relying only on frontend button hiding.
+
+These are intentionally deferred. They should not block the first closed-loop implementation of flight-task creation and maintenance.
+
 #### 11.1.2 Flight-task runtime fact fields
 
 These are operational facts that may later affect workflow but are not the same thing as workflow state:
@@ -1334,6 +1369,13 @@ Crew-resource data should remain four-layered:
 3. operational status fields
 4. derived calculation and forecast fields
 
+The crew information surface should also remain explicitly split into four stable parts so later field growth can be absorbed without redesigning the whole page:
+
+1. personnel profile
+2. qualifications and licenses
+3. hours and limits
+4. duty calendar
+
 #### 11.2.1 Crew master profile fields
 
 These are the stable identity and organizational facts for a crew member:
@@ -1347,6 +1389,49 @@ These are the stable identity and organizational facts for a crew member:
 - `status`
 
 These fields should stay relatively stable and should not absorb rolling calculations or status-block logic.
+
+Implementation rule:
+
+- do not pre-create large numbers of speculative future fields in the profile model just to “reserve them”,
+- reserve maintainability by keeping the four-part split stable,
+- add later fields into the correct part when the business meaning is known,
+- avoid forcing future field growth back into one overloaded crew record form.
+
+For the current code baseline, the personnel-profile surface should treat these as the first stable profile core:
+
+- `crewCode`
+- `employeeNo`
+- `nameZh`
+- `nameEn`
+- `homeBase`
+- `status`
+
+The following currently exist in the same entity but should be treated as split-sensitive fields rather than permanent core-profile fields:
+
+- `roleCode`
+- `rankCode`
+- `aircraftQualification`
+- `acclimatizationStatus`
+- `bodyClockTimezone`
+- `normalCommuteMinutes`
+- `externalEmploymentFlag`
+- `availabilityStatus`
+
+The following must remain derived judgment fields, not ordinary profile maintenance fields:
+
+- `rollingFlightHours28d`
+- `rollingDutyHours28d`
+- `rollingDutyHours7d`
+- `rollingDutyHours14d`
+- `rollingFlightHours12m`
+- `latestActualFdpHours`
+- `latestActualFdpSource`
+
+The hours-and-limits surface should consume these values as backend-derived judgment aids.
+
+It should not become a first-stage calculation owner itself.
+
+Future enhancements should prefer expanding backend-derived outputs rather than pushing rolling-hour or FDP logic into the page layer.
 
 #### 11.2.2 Crew qualification and role fields
 
@@ -1405,6 +1490,17 @@ Required outcomes:
 - current master plan remains the active source of truth
 - no new business meaning is added to the legacy timeline
 
+### 12.1a Phase 0 execution focus
+
+Phase 0 is a boundary-freeze stage, not a behavior-redesign stage.
+
+During Phase 0:
+
+- freeze legacy timeline as a display-first surface,
+- freeze legacy assignment semantics as the draft baseline,
+- prevent new workflow meaning from being invented in UI state,
+- avoid broad refactors outside boundary cleanup and explicit documentation.
+
 ### 12.2 Phase 1: Flight-task module stabilization
 
 Goal:
@@ -1422,6 +1518,41 @@ Completion gate:
 
 - flight-task closed loop works without relying on legacy workbench state guessing
 
+### 12.2a Phase 1 execution focus
+
+Phase 1 should stabilize the flight-task module as a standalone fact-management surface.
+
+Current implementation baseline:
+
+- backend task CRUD already exists in `TaskPlanController`,
+- frontend task editing already exists inside `FlightOperationsPage`,
+- current page mixes flight tasks with routes, airports, and aircraft registries.
+
+Phase 1 should:
+
+- keep `TaskPlanItem` CRUD as the initial backend baseline,
+- preserve current create, update, and cancel behavior unless it conflicts with explicit boundary rules,
+- separate task-module scope from route, airport, and aircraft master-data scope,
+- treat route / airport / aircraft maintenance as reference-data ownership outside the task module,
+- allow reference data to be created, edited, and disabled only when the change does not break existing task references,
+- avoid reintroducing timeline-derived workflow meaning into task list or task detail.
+- remove old hidden `task-plan` route entry points from the active main-path route table.
+
+Phase 1 should not:
+
+- redesign draft assignment behavior,
+- move route management into the task closed loop,
+- move aircraft registry into the task closed loop,
+- move airport-timezone administration into the task closed loop.
+
+Current closure snapshot:
+
+- the main visible task entry is the dedicated `flight-plan` route and page,
+- `FlightOperationsPage` no longer acts as the primary task-module host,
+- active main-path task CRUD is separated from legacy timeline/workbench entry points,
+- non-editable tasks remain viewable from the task side through read-only detail,
+- backend protects task maintenance from rewriting draft-assigned and published workflow meaning.
+
 ### 12.3 Phase 2: Crew-resource module stabilization
 
 Goal:
@@ -1433,12 +1564,54 @@ Scope:
 - crew information
 - qualification and role facts
 - crew status timeline
-- crew external work
 - existing crew forecast/calculation fields
 
 Completion gate:
 
 - draft rostering can read crew-side truth from the crew-resource module instead of from legacy page-local assembly
+
+### 12.3a Phase 2 execution focus
+
+Phase 2 should stabilize the crew-resource module as the second standalone fact-management surface.
+
+Current implementation baseline:
+
+- frontend crew pages already exist, but are still embedded inside the large mixed `Pages.tsx` file,
+- backend crew APIs already exist for crew members, qualifications, and crew-status blocks; separate external-work APIs still exist as temporary residue,
+- existing crew limit and forecast fields already exist and should be preserved.
+
+Phase 2 should:
+
+- keep current crew CRUD and supporting APIs as the initial backend baseline,
+- separate crew-resource UI and helper logic from the mixed page file,
+- preserve the four-layer model already agreed for crew data:
+  - master profile
+  - qualification and role
+  - operational status
+  - derived calculation and forecast
+- keep current rolling-hours and FDP-related dispatcher judgment fields visible,
+- avoid redesigning assignment semantics while crew-resource truth is being stabilized.
+
+Current Phase 2 progress:
+
+- the route entry already goes through a dedicated `CrewStatusPage` dispatcher file,
+- `CrewInformationPage` is already extracted into its own file and is the active route target,
+- `CrewStatusTimelinePage` is already extracted into its own file and is the active route target,
+- external work has been removed from the main crew-resource path and is now treated as a deferred cleanup decision rather than a primary module surface,
+- old duplicate implementations inside the mixed page host are now temporary extraction residue and can be removed in a later cleanup step after behavior verification,
+- the four `CrewInformationPage` domains now also exist as separate section files:
+  - `CrewProfileSection.tsx`
+  - `CrewQualificationSection.tsx`
+  - `CrewLimitsSection.tsx`
+  - `CrewDutyCalendarSection.tsx`
+  so future field growth no longer needs to accumulate inside one tab-heavy page body.
+
+Phase 2 should not:
+
+- redesign draft rostering behavior,
+- move crew-resource logic back into timeline-driven workflow,
+- replace the current calculation model with a new rule engine,
+- merge crew-resource facts back into task-module pages.
 
 ### 12.4 Phase 3: Draft rostering migration
 
@@ -1509,3 +1682,44 @@ These rules apply to every phase:
 - frontend modules must not reconstruct truth from legacy timeline state
 - button visibility and workflow actions should continue to come from backend view models
 - if a new phase requires page-local state guessing, the upstream boundary is not clean enough and should be corrected first
+
+## 13. Minimal physical-delete rules
+
+Current implementation baseline:
+
+- `delete` always means physical deletion
+- `cancel` is a separate business action and must not be conflated with delete
+
+### 13.1 Flight-plan tasks
+
+- tasks may be physically deleted only while they have not entered downstream flow
+- current minimal safe rule:
+  - `UNASSIGNED` tasks may be physically deleted
+  - `ASSIGNED_DRAFT`, `PUBLISHED`, `CANCELLED`, or any task blocked by downstream foreign-key references may not be physically deleted
+
+### 13.2 Operations master data
+
+- routes may be physically deleted only when no flight-plan task references the same departure/arrival pair
+- aircraft may be physically deleted only when no flight-plan task references the same aircraft number
+- airports may be physically deleted only when they are not referenced by:
+  - flight routes
+  - aircraft base airport
+  - flight-plan task departure/arrival fields
+- referenced operations-master-data records are also not editable in the first-stage closed loop
+
+### 13.3 No disable/soft-delete expansion in current closure
+
+- the current closure intentionally does not introduce an additional disable/deactivate workflow for these delete paths
+- if an object is referenced, delete is rejected
+- if it is not referenced, delete is physical
+
+### 13.4 Current split status of run-data maintenance
+
+- frontend run-data maintenance is now split into three section files:
+  - `RouteMaintenanceSection.tsx`
+  - `AirportMaintenanceSection.tsx`
+  - `AircraftMaintenanceSection.tsx`
+- backend run-data maintenance is now split by controller responsibility:
+  - `FlightRouteController`
+  - `AirportDictionaryController`
+  - `AircraftRegistryController`

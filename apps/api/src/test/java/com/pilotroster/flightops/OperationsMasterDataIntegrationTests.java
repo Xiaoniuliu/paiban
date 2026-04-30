@@ -43,7 +43,7 @@ class OperationsMasterDataIntegrationTests {
     }
 
     @Test
-    void flightOperationsMasterDataCrudUsesSoftDisable() throws Exception {
+    void flightOperationsMasterDataCrudSupportsPhysicalDeleteForUnreferencedRecords() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
 
         mockMvc.perform(post("/api/airports")
@@ -88,7 +88,7 @@ class OperationsMasterDataIntegrationTests {
                 .content("""
                     {
                       "aircraftNo": "B-TEST01",
-                      "aircraftType": "A330",
+                      "aircraftType": "TEST-UNREF-01",
                       "fleet": "A330F",
                       "baseAirport": "MFM",
                       "seatCount": 0,
@@ -106,12 +106,10 @@ class OperationsMasterDataIntegrationTests {
             .andExpect(jsonPath("$.data[*].routeCode").value(hasItem("MFM-TEST")));
 
         mockMvc.perform(delete("/api/flight-operations/routes/" + routeId).header("Authorization", "Bearer " + token))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.status").value("INACTIVE"));
+            .andExpect(status().isOk());
 
         mockMvc.perform(delete("/api/flight-operations/aircraft/" + aircraftId).header("Authorization", "Bearer " + token))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.status").value("INACTIVE"));
+            .andExpect(status().isOk());
     }
 
     @Test

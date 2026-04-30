@@ -6,4 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface FlightRouteRepository extends JpaRepository<FlightRoute, Long> {
 
     List<FlightRoute> findAllByOrderByRouteCodeAsc();
+
+    boolean existsByDepartureAirportOrArrivalAirport(String departureAirport, String arrivalAirport);
 }
