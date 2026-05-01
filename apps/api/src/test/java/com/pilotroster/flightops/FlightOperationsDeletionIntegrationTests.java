@@ -31,11 +31,11 @@ class FlightOperationsDeletionIntegrationTests {
     @BeforeEach
     @AfterEach
     void cleanTestRows() {
-        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code IN ('TEST9201', 'TEST9202', 'TEST9203')");
+        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code IN ('TEST9201', 'TEST9202', 'TEST9203', 'TEST9204')");
         jdbcTemplate.update("DELETE FROM task_plan_import_batch WHERE batch_no = 'TEST-BATCH-9200'");
         jdbcTemplate.update("DELETE FROM flight_route WHERE route_code IN ('TEST-ROUTE-9201', 'TEST-ROUTE-9202', 'TEST-ROUTE-9203')");
-        jdbcTemplate.update("DELETE FROM aircraft_registry WHERE aircraft_no IN ('B-TEST9201', 'B-TEST9202', 'B-TEST9203')");
-        jdbcTemplate.update("DELETE FROM airport_dictionary WHERE iata_code IN ('X92', 'Y92', 'Z92')");
+        jdbcTemplate.update("DELETE FROM aircraft_registry WHERE aircraft_no IN ('B-TEST9201', 'B-TEST9202', 'B-TEST9203', 'B-TEST9204')");
+        jdbcTemplate.update("DELETE FROM airport_dictionary WHERE iata_code IN ('Q92', 'R92', 'S92', 'T92', 'U92', 'X92', 'Y92', 'Z92')");
     }
 
     @Test
@@ -184,6 +184,90 @@ class FlightOperationsDeletionIntegrationTests {
             .andExpect(status().isConflict());
     }
 
+    @Test
+    void airportReferencedByRouteCannotBeUpdatedOrDeleted() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long airportId = createAirport(token, "Q92");
+        createAirport(token, "R92");
+        createRoute(token, "TEST-ROUTE-9203", "Q92", "R92");
+
+        mockMvc.perform(put("/api/airports/" + airportId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "iataCode": "Q92",
+                      "nameZh": "测试机场更新",
+                      "nameEn": "Blocked By Route",
+                      "timezoneName": "Asia/Shanghai",
+                      "utcOffsetMinutes": 480,
+                      "countryCode": "CN",
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isConflict());
+
+        mockMvc.perform(delete("/api/airports/" + airportId)
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isConflict());
+    }
+
+    @Test
+    void airportReferencedByAircraftCannotBeUpdatedOrDeleted() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long airportId = createAirport(token, "S92");
+        createAircraftAtBase(token, "B-TEST9204", "TEST-AIRPORT-9204", "S92");
+
+        mockMvc.perform(put("/api/airports/" + airportId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "iataCode": "S92",
+                      "nameZh": "测试机场更新",
+                      "nameEn": "Blocked By Aircraft",
+                      "timezoneName": "Asia/Shanghai",
+                      "utcOffsetMinutes": 480,
+                      "countryCode": "CN",
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isConflict());
+
+        mockMvc.perform(delete("/api/airports/" + airportId)
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isConflict());
+    }
+
+    @Test
+    void airportReferencedByActiveTaskCannotBeUpdatedOrDeleted() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long airportId = createAirport(token, "T92");
+        createAirport(token, "U92");
+        Long batchId = createBatch();
+        createTask(batchId, "TEST9204", "UNASSIGNED", "T92", "U92", null, "A330");
+
+        mockMvc.perform(put("/api/airports/" + airportId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "iataCode": "T92",
+                      "nameZh": "测试机场更新",
+                      "nameEn": "Blocked By Task",
+                      "timezoneName": "Asia/Shanghai",
+                      "utcOffsetMinutes": 480,
+                      "countryCode": "CN",
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isConflict());
+
+        mockMvc.perform(delete("/api/airports/" + airportId)
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isConflict());
+    }
+
     private Long createRoute(String token, String routeCode, String departureAirport, String arrivalAirport) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/flight-operations/routes")
                 .header("Authorization", "Bearer " + token)
@@ -225,6 +309,10 @@ class FlightOperationsDeletionIntegrationTests {
     }
 
     private Long createAircraft(String token, String aircraftNo, String aircraftType) throws Exception {
+        return createAircraftAtBase(token, aircraftNo, aircraftType, "MFM");
+    }
+
+    private Long createAircraftAtBase(String token, String aircraftNo, String aircraftType, String baseAirport) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/flight-operations/aircraft")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -233,11 +321,11 @@ class FlightOperationsDeletionIntegrationTests {
                       "aircraftNo": "%s",
                       "aircraftType": "%s",
                       "fleet": "TEST",
-                      "baseAirport": "MFM",
+                      "baseAirport": "%s",
                       "seatCount": 260,
                       "status": "ACTIVE"
                     }
-                    """.formatted(aircraftNo, aircraftType)))
+                    """.formatted(aircraftNo, aircraftType, baseAirport)))
             .andExpect(status().isOk())
             .andReturn();
         return extractLong(result.getResponse().getContentAsString(), "\"id\":");

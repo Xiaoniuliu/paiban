@@ -71,6 +71,9 @@ function toFlightDisplayBlock(flightBlocks: GanttTimelineBlock[], t: (key: strin
     crewArchiveSummary: pickCrewArchiveSummary(sortedBlocks),
     canEditArchive: sortedBlocks.some((block) => block.canEditArchive),
     archiveReadOnlyReason: pickFirst(sortedBlocks.map((block) => block.archiveReadOnlyReason)),
+    ruleHitCount: pickRuleHitCount(sortedBlocks),
+    ruleHitSummary: pickRuleHitSummary(sortedBlocks),
+    ruleHitCodes: pickRuleHitCodes(sortedBlocks),
     timelineGroupLabel: flightGroupLabel(representative),
     timelineItemLabel: hasAssignedCrew ? `${picLabel} / ${foLabel}` : t('taskStatusUNASSIGNED'),
     timelineTitleExtra: titleExtra,
@@ -117,4 +120,26 @@ function pickCrewArchiveSummary(blocks: GanttTimelineBlock[]) {
     .map((block) => block.crewArchiveSummary)
     .find((summary) => summary.total > 0)
     ?? blocks[0].crewArchiveSummary;
+}
+
+function pickRuleHitCount(blocks: GanttTimelineBlock[]) {
+  const counts = blocks
+    .map((block) => block.ruleHitCount)
+    .filter((count): count is number => typeof count === 'number' && count > 0);
+  if (counts.length === 0) return null;
+  return Math.max(...counts);
+}
+
+function pickRuleHitSummary(blocks: GanttTimelineBlock[]) {
+  const summaries = blocks
+    .map((block) => block.ruleHitSummary?.trim())
+    .filter((summary): summary is string => Boolean(summary));
+  if (summaries.length === 0) return null;
+  return Array.from(new Set(summaries)).join(' | ');
+}
+
+function pickRuleHitCodes(blocks: GanttTimelineBlock[]) {
+  const codes = blocks.flatMap((block) => block.ruleHitCodes ?? []);
+  if (codes.length === 0) return null;
+  return Array.from(new Set(codes.filter(Boolean)));
 }

@@ -4,9 +4,11 @@
 
 **Goal:** Rebuild the workbench navigation and page boundaries so Phase 3 grows on clean module seams instead of the old Legacy/Pages.tsx structure.
 
-**Architecture:** Rename the old Legacy group back to a formal `排班工作台`, keep only flight view, crew view, and draft rostering inside it, migrate archive into the validation module, and split workbench/validation pages out of the legacy page switch. Keep timeline display-only, but refresh its shell so it feels like a formal observation page rather than an old workbench leftover.
+**Architecture:** Rename the old Legacy group back to a formal `排班工作台`, keep only flight view, crew view, and draft rostering inside it, migrate archive into the validation module, and split workbench/validation pages out of the legacy page switch. Keep timeline display-only and rebuild it strictly around the official `usingReact16` example seam: `template`, `tooltip.template`, `select`/`click`, and read-only rule-hit projection only.
 
 **Tech Stack:** React, TypeScript, React Router-style route config, Tailwind/Shadcn UI, vis-timeline, Playwright
+
+**Execution Status:** Completed through Task 6. Verification passed with `npm run build`, `npm run check:i18n`, and `npx playwright test e2e/framework.spec.ts -g "workbench|archive|display-only|redirect|rule-hit" --project=chromium`. Commit step intentionally not run in this session.
 
 ---
 
@@ -44,10 +46,12 @@
 - Create: `apps/web/src/app/pages/validation/PublishExportPage.tsx`
 - Create: `apps/web/src/app/pages/validation/archive/ArchiveEntryPage.tsx`
 
-### Timeline shell and copy
+### Timeline adapter and rule-hit projection
 
 - Modify: `apps/web/src/app/components/timeline/GanttTimeline.tsx`
 - Modify: `apps/web/src/app/components/timeline/GanttTimeline.css`
+- Modify: `apps/web/src/app/components/timeline/timelineDisplay.ts`
+- Modify: `apps/web/src/app/components/timeline/timelineTypes.ts`
 - Modify: `apps/web/src/app/i18n.ts`
 
 ### Regression coverage
@@ -246,53 +250,74 @@ Run: `npx playwright test e2e/framework.spec.ts -g "archive entry" --project=chr
 
 Expected: PASS with the new validation-owned archive page.
 
-## Task 4: Refresh the timeline shell without breaking display-only boundaries
+## Task 4: Rebuild the timeline around the official React template seam
 
 **Files:**
 - Modify: `apps/web/src/app/components/timeline/GanttTimeline.tsx`
 - Modify: `apps/web/src/app/components/timeline/GanttTimeline.css`
+- Modify: `apps/web/src/app/components/timeline/timelineDisplay.ts`
+- Modify: `apps/web/src/app/components/timeline/timelineTypes.ts`
 - Modify: `apps/web/src/app/i18n.ts`
 - Modify: `apps/web/src/app/pages/workbench/components/WorkbenchTimelineCard.tsx`
 
-- [ ] **Step 1: Add a failing browser assertion for the formalized timeline shell**
+- [ ] **Step 1: Add a failing browser assertion for rule-hit projection and display-only selection**
 
-Add a Playwright check that the workbench timeline renders formal shell copy and no business action drawer opens on click:
+Add a Playwright check that the workbench timeline keeps display-only behavior, preserves selection, and can render read-only rule-hit projection:
 
 ```ts
 await expect(page.getByTestId('timeline-status-legend')).toBeVisible();
-await expect(page.getByText('旧工作台')).toHaveCount(0);
 await page.getByTestId('gantt-timeline').click({ position: { x: 40, y: 40 } });
 await expect(page.getByTestId('assignment-drawer')).toHaveCount(0);
 await expect(page.getByTestId('archive-drawer')).toHaveCount(0);
+await expect(page.getByTestId('timeline-readonly-detail')).toBeVisible();
 ```
 
 - [ ] **Step 2: Run the focused timeline display spec**
 
 Run: `npx playwright test e2e/framework.spec.ts -g "display-only" --project=chromium`
 
-Expected: FAIL if the current shell copy or styling still reflects the old workbench presentation or if any legacy interaction leaks back in.
+Expected: FAIL if the current adapter does not expose the official selection/read-only projection seam or if any legacy interaction leaks back in.
 
-- [ ] **Step 3: Refresh the timeline shell copy and layout**
+- [ ] **Step 3: Rebuild timeline items around official template, tooltip, and read-only detail**
 
-Keep vis-timeline usage unchanged, but modernize the shell:
+Keep vis-timeline usage strictly within the official example seam:
 
 ```tsx
-<div className={`gantt-timeline-shell gantt-timeline-${viewMode.toLowerCase()}`} data-testid="gantt-timeline">
-  <div className="gantt-timeline-header">
-    <div>
-      <div className="gantt-timeline-title">{viewMode === 'FLIGHT' ? t('validationOpenFlightView') : t('validationOpenCrewView')}</div>
-      <div className="gantt-timeline-subtitle">{t('timelineDisplayOnlyNote')}</div>
-    </div>
-    <div className="gantt-timeline-legend" data-testid="timeline-status-legend">...</div>
+const timelineOptions = {
+  ...buildTimelineOptions({ timezone }),
+  template: (item, element) => ReactDOM.render(<TimelineItemContent item={item} />, element),
+  tooltip: {
+    followMouse: true,
+    template: (item) => renderRuleHitTooltip(item),
+  },
+};
+```
+
+Project only current backend facts into the template:
+
+```tsx
+<TimelineItemContent
+  statusLabel={item.statusLabel}
+  ruleHitBadge={item.ruleHitCount ? `${item.ruleHitCount} hits` : undefined}
+/>
+```
+
+And keep selected-item information in a read-only detail panel:
+
+```tsx
+{selectedItem ? (
+  <div data-testid="timeline-readonly-detail">
+    <div>{selectedItem.title}</div>
+    <div>{selectedItem.ruleHitSummary}</div>
   </div>
-</div>
+) : null}
 ```
 
 - [ ] **Step 4: Re-run the focused timeline display spec**
 
 Run: `npx playwright test e2e/framework.spec.ts -g "display-only" --project=chromium`
 
-Expected: PASS, with no regression in display-only behavior.
+Expected: PASS, with no regression in display-only behavior and with current rule-hit projection visible only when returned by backend data.
 
 ## Task 5: Recompose draft rostering internals so Phase 3 can grow there, not in workbench
 
@@ -359,6 +384,7 @@ test('workbench keeps only three formal entries', async ({ page }) => { ... });
 test('removed workbench routes redirect or retire cleanly', async ({ page }) => { ... });
 test('archive is reachable from validation center', async ({ page }) => { ... });
 test('timeline remains display-only with no business drawers', async ({ page }) => { ... });
+test('timeline rule-hit marker disappears when backend no longer returns hits', async ({ page }) => { ... });
 ```
 
 - [ ] **Step 2: Run frontend verification**
@@ -383,7 +409,8 @@ Record this gate in:
 - [x] Workbench boundary rebuild complete
 - [x] Archive moved under validation center
 - [x] Old workbench routes redirect or retire cleanly
-- [x] Timeline display-only shell refreshed
+- [x] Timeline rebuilt on official React template seam
+- [x] Timeline rule-hit marker and summary stay read-only and disappear with cleared backend results
 ```
 
 - [ ] **Step 5: Commit**

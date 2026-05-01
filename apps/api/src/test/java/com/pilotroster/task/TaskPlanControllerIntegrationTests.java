@@ -9,7 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import static org.hamcrest.Matchers.hasItem;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,12 +37,15 @@ class TaskPlanControllerIntegrationTests {
     @BeforeEach
     @AfterEach
     void cleanTestRows() {
-        jdbcTemplate.update("DELETE vh FROM violation_hit vh JOIN task_plan_item tpi ON tpi.id = vh.task_id WHERE tpi.task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107')");
-        jdbcTemplate.update("DELETE tb FROM timeline_block tb JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id WHERE tpi.task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107')");
+        jdbcTemplate.update("DELETE caf FROM crew_archive_form caf JOIN task_plan_item tpi ON tpi.id = caf.flight_id WHERE tpi.task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107', 'TEST9108')");
+        jdbcTemplate.update("DELETE fac FROM flight_archive_case fac JOIN task_plan_item tpi ON tpi.id = fac.flight_id WHERE tpi.task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107', 'TEST9108')");
+        jdbcTemplate.update("DELETE vh FROM violation_hit vh JOIN task_plan_item tpi ON tpi.id = vh.task_id WHERE tpi.task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107', 'TEST9108')");
+        jdbcTemplate.update("DELETE vh FROM violation_hit vh JOIN timeline_block tb ON tb.id = vh.timeline_block_id JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id WHERE tpi.task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107', 'TEST9108')");
+        jdbcTemplate.update("DELETE tb FROM timeline_block tb JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id WHERE tpi.task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107', 'TEST9108')");
         jdbcTemplate.update("DELETE FROM timeline_block WHERE crew_member_id IN (SELECT id FROM crew_member WHERE crew_code IN ('TESTCREW91', 'TESTCREW92', 'TESTCREW93'))");
         jdbcTemplate.update("DELETE FROM crew_qualification WHERE crew_member_id IN (SELECT id FROM crew_member WHERE crew_code IN ('TESTCREW91', 'TESTCREW92', 'TESTCREW93'))");
         jdbcTemplate.update("DELETE FROM crew_member WHERE crew_code IN ('TESTCREW91', 'TESTCREW92', 'TESTCREW93')");
-        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107')");
+        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107', 'TEST9108')");
         jdbcTemplate.update("DELETE FROM task_plan_import_batch WHERE batch_no = 'TEST-BATCH-9100'");
     }
 
@@ -220,11 +225,46 @@ class TaskPlanControllerIntegrationTests {
     }
 
     @Test
+    void unassignedTaskDeleteAlsoCleansStaleArchiveAndDraftArtifacts() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long batchId = createBatch(token);
+        Long taskId = createTask(batchId, "TEST9108", "UNASSIGNED");
+        Long picBlockId = insertAssignmentTimelineBlock(taskId, "CPT002", "PIC");
+        Long foBlockId = insertAssignmentTimelineBlock(taskId, "FO003", "FO");
+        Long archiveCaseId = insertArchiveCase(taskId);
+        insertArchiveForm(archiveCaseId, taskId, "CPT002");
+        insertArchiveForm(archiveCaseId, taskId, "FO003");
+        insertViolationHit(taskId, picBlockId);
+
+        mockMvc.perform(delete("/api/task-plan/items/" + taskId)
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id").value(taskId));
+
+        assertCount("SELECT COUNT(*) FROM task_plan_item WHERE id = ?", taskId, 0, "Expected task row to be deleted");
+        assertCount("SELECT COUNT(*) FROM timeline_block WHERE task_plan_item_id = ?", taskId, 0, "Expected stale draft timeline rows to be deleted");
+        assertCount("SELECT COUNT(*) FROM violation_hit WHERE task_id = ?", taskId, 0, "Expected stale violation rows to be deleted");
+        assertCount("SELECT COUNT(*) FROM flight_archive_case WHERE flight_id = ?", taskId, 0, "Expected stale archive case rows to be deleted");
+        assertCount("SELECT COUNT(*) FROM crew_archive_form WHERE flight_id = ?", taskId, 0, "Expected stale archive form rows to be deleted");
+
+        Integer orphanFoBlockCount = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM timeline_block WHERE id = ?",
+            Integer.class,
+            foBlockId
+        );
+        if (orphanFoBlockCount == null || orphanFoBlockCount != 0) {
+            throw new AssertionError("Expected FO stale draft timeline row to be deleted");
+        }
+    }
+
+    @Test
     void assignmentReadinessContractComesFromBackendOwnedTaskCrewBridge() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
         Long batchId = createBatch(token);
         Long blockedCrewId = createCrew(token, "TESTCREW91", "CAPTAIN", "A330");
         createCrew(token, "TESTCREW92", "FIRST_OFFICER", "A330");
+        Instant blockedStartUtc = Instant.now().minusSeconds(1800);
+        Instant blockedEndUtc = blockedStartUtc.plusSeconds(3600);
 
         mockMvc.perform(post("/api/timeline-blocks/crew-status")
                 .header("Authorization", "Bearer " + token)
@@ -238,8 +278,8 @@ class TaskPlanControllerIntegrationTests {
                     }
                     """.formatted(
                     blockedCrewId,
-                    Instant.now().minusSeconds(1800),
-                    Instant.now().plusSeconds(1800)
+                    blockedStartUtc,
+                    blockedEndUtc
                 )))
             .andExpect(status().isOk());
 
@@ -308,9 +348,13 @@ class TaskPlanControllerIntegrationTests {
 
         assertBoolean(blockedCrew, "availableForAssignmentNow", false);
         assertText(blockedCrew, "unavailableBlockType", "REST");
+        assertInstant(blockedCrew, "unavailableUntilUtc", blockedEndUtc.truncatedTo(ChronoUnit.SECONDS));
         assertBoolean(availableCrew, "availableForAssignmentNow", true);
         if (!availableCrew.path("unavailableBlockType").isNull()) {
             throw new AssertionError("Expected TESTCREW92 to have no active timeline unavailability block");
+        }
+        if (!availableCrew.path("unavailableUntilUtc").isNull()) {
+            throw new AssertionError("Expected TESTCREW92 to have no active timeline unavailable-until timestamp");
         }
     }
 
@@ -408,6 +452,13 @@ class TaskPlanControllerIntegrationTests {
         }
     }
 
+    private void assertInstant(JsonNode node, String fieldName, Instant expectedValue) {
+        Instant actualValue = Instant.parse(node.path(fieldName).asText());
+        if (Duration.between(expectedValue, actualValue).abs().compareTo(Duration.ofSeconds(1)) > 0) {
+            throw new AssertionError("Expected " + fieldName + "=" + expectedValue + " but was " + actualValue);
+        }
+    }
+
     private void assertSize(JsonNode array, int expectedSize) {
         if (!array.isArray() || array.size() != expectedSize) {
             throw new AssertionError("Expected array size " + expectedSize + " but was " + array.size());
@@ -466,6 +517,92 @@ class TaskPlanControllerIntegrationTests {
             "SELECT id FROM timeline_block WHERE task_plan_item_id = ?",
             Long.class,
             taskId
+        );
+    }
+
+    private Long insertAssignmentTimelineBlock(Long taskId, String crewCode, String assignmentRole) {
+        jdbcTemplate.update("""
+            INSERT INTO timeline_block (
+              roster_version_id,
+              crew_member_id,
+              task_plan_item_id,
+              block_type,
+              start_utc,
+              end_utc,
+              display_label,
+              status,
+              assignment_role,
+              display_order
+            ) VALUES (
+              1,
+              (SELECT id FROM crew_member WHERE crew_code = ?),
+              ?,
+              'FLIGHT',
+              ?,
+              ?,
+              'TEST DRAFT BLOCK',
+              'ASSIGNED_DRAFT',
+              ?,
+              ?
+            )
+            """,
+            crewCode,
+            taskId,
+            Instant.parse("2026-05-03T01:00:00Z"),
+            Instant.parse("2026-05-03T05:00:00Z"),
+            assignmentRole,
+            "PIC".equals(assignmentRole) ? 0 : 1
+        );
+        return jdbcTemplate.queryForObject(
+            """
+            SELECT id
+            FROM timeline_block
+            WHERE task_plan_item_id = ?
+              AND assignment_role = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            Long.class,
+            taskId,
+            assignmentRole
+        );
+    }
+
+    private Long insertArchiveCase(Long taskId) {
+        jdbcTemplate.update("""
+            INSERT INTO flight_archive_case (
+              flight_id,
+              roster_version_id,
+              archive_status,
+              archive_deadline_at_utc,
+              archived_at_utc,
+              completed_count,
+              total_count,
+              revision
+            ) VALUES (?, 1, 'Overdue', ?, NULL, 0, 2, 1)
+            """,
+            taskId,
+            Instant.parse("2026-05-04T05:00:00Z")
+        );
+        return jdbcTemplate.queryForObject(
+            "SELECT id FROM flight_archive_case WHERE flight_id = ?",
+            Long.class,
+            taskId
+        );
+    }
+
+    private void insertArchiveForm(Long archiveCaseId, Long taskId, String crewCode) {
+        jdbcTemplate.update("""
+            INSERT INTO crew_archive_form (
+              archive_case_id,
+              flight_id,
+              crew_id,
+              form_status
+            ) VALUES (?, ?, (SELECT id FROM crew_member WHERE crew_code = ?), 'NotStarted')
+            """,
+            archiveCaseId,
+            taskId,
+            crewCode
         );
     }
 

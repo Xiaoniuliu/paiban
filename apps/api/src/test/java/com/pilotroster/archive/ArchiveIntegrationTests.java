@@ -39,7 +39,7 @@ class ArchiveIntegrationTests {
             FROM crew_archive_form caf
             JOIN flight_archive_case fac ON fac.id = caf.archive_case_id
             JOIN task_plan_item tpi ON tpi.id = fac.flight_id
-            WHERE tpi.task_code IN ('NX8801', 'NX8810', 'TSTNOCR')
+            WHERE tpi.task_code IN ('NX8801', 'NX8810', 'NX9001', 'TSTNOCR')
             """
         );
         jdbcTemplate.update(
@@ -47,13 +47,55 @@ class ArchiveIntegrationTests {
             DELETE fac
             FROM flight_archive_case fac
             JOIN task_plan_item tpi ON tpi.id = fac.flight_id
-            WHERE tpi.task_code IN ('NX8801', 'NX8810', 'TSTNOCR')
+            WHERE tpi.task_code IN ('NX8801', 'NX8810', 'NX9001', 'TSTNOCR')
             """
         );
         jdbcTemplate.update(
             """
             DELETE FROM task_plan_item
             WHERE task_code = 'TSTNOCR'
+            """
+        );
+        jdbcTemplate.update(
+            """
+            INSERT INTO task_plan_item (
+              batch_id,
+              task_code,
+              task_type,
+              departure_airport,
+              arrival_airport,
+              scheduled_start_utc,
+              scheduled_end_utc,
+              sector_count,
+              status,
+              title_zh,
+              title_en,
+              aircraft_type,
+              aircraft_no,
+              required_crew_pattern,
+              source_status
+            )
+            SELECT
+              id,
+              'NX9001',
+              'FLIGHT',
+              'MFM',
+              'SIN',
+              '2026-04-26 01:00:00',
+              '2026-04-26 05:15:00',
+              1,
+              'ASSIGNED',
+              'NX9001',
+              'NX9001',
+              'A330',
+              'B-MOCK9001',
+              'PIC+FO',
+              'MANUAL'
+            FROM task_plan_import_batch
+            WHERE batch_no = 'BATCH-2026-05-W1'
+              AND NOT EXISTS (
+                SELECT 1 FROM task_plan_item existing WHERE existing.task_code = 'NX9001'
+              )
             """
         );
         jdbcTemplate.update(
@@ -67,45 +109,128 @@ class ArchiveIntegrationTests {
         );
         jdbcTemplate.update(
             """
+            INSERT INTO timeline_block (
+              roster_version_id,
+              crew_member_id,
+              task_plan_item_id,
+              block_type,
+              start_utc,
+              end_utc,
+              display_label,
+              status,
+              assignment_role,
+              display_order
+            )
+            SELECT
+              1,
+              c.id,
+              tpi.id,
+              'FLIGHT',
+              tpi.scheduled_start_utc,
+              tpi.scheduled_end_utc,
+              'NX9001 MFM-SIN',
+              'ASSIGNED',
+              seeded.assignment_role,
+              seeded.display_order
+            FROM task_plan_item tpi
+            JOIN (
+              SELECT 'CPT002' AS crew_code, 'PIC' AS assignment_role, 0 AS display_order
+              UNION ALL
+              SELECT 'FO003', 'FO', 1
+            ) seeded
+            JOIN crew_member c ON c.crew_code = seeded.crew_code
+            WHERE tpi.task_code = 'NX9001'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM timeline_block existing
+                WHERE existing.task_plan_item_id = tpi.id
+                  AND existing.assignment_role = seeded.assignment_role
+              )
+            """
+        );
+        jdbcTemplate.update(
+            """
             UPDATE timeline_block tb
             JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id
             SET tb.start_utc = tpi.scheduled_start_utc,
-                tb.end_utc = tpi.scheduled_end_utc
+                tb.end_utc = tpi.scheduled_end_utc,
+                tb.display_label = 'NX9001 MFM-SIN',
+                tb.status = 'ASSIGNED'
             WHERE tpi.task_code = 'NX9001'
             """
         );
         jdbcTemplate.update(
             """
-            UPDATE crew_archive_form caf
-            JOIN flight_archive_case fac ON fac.id = caf.archive_case_id
-            JOIN task_plan_item tpi ON tpi.id = fac.flight_id
-            SET caf.actual_duty_start_utc = NULL,
-                caf.actual_duty_end_utc = NULL,
-                caf.actual_fdp_start_utc = NULL,
-                caf.actual_fdp_end_utc = NULL,
-                caf.flying_hour_minutes = NULL,
-                caf.no_flying_hour_flag = FALSE,
-                caf.form_status = 'NotStarted',
-                caf.entered_by = NULL,
-                caf.entered_at_utc = NULL,
-                caf.confirmed_at_utc = NULL,
-                caf.revision = 0
+            INSERT INTO flight_archive_case (
+              flight_id,
+              roster_version_id,
+              archive_status,
+              archive_deadline_at_utc,
+              archived_at_utc,
+              completed_count,
+              total_count,
+              revision
+            )
+            SELECT
+              tpi.id,
+              1,
+              'Unarchived',
+              DATE_ADD(tpi.scheduled_end_utc, INTERVAL 24 HOUR),
+              NULL,
+              0,
+              2,
+              0
+            FROM task_plan_item tpi
             WHERE tpi.task_code = 'NX9001'
+              AND NOT EXISTS (
+                SELECT 1 FROM flight_archive_case fac WHERE fac.flight_id = tpi.id
+              )
             """
         );
         jdbcTemplate.update(
             """
-            UPDATE flight_archive_case fac
+            INSERT INTO crew_archive_form (
+              archive_case_id,
+              flight_id,
+              crew_id,
+              actual_duty_start_utc,
+              actual_duty_end_utc,
+              actual_fdp_start_utc,
+              actual_fdp_end_utc,
+              flying_hour_minutes,
+              no_flying_hour_flag,
+              form_status,
+              entered_by,
+              entered_at_utc,
+              confirmed_at_utc,
+              revision
+            )
+            SELECT
+              fac.id,
+              fac.flight_id,
+              tb.crew_member_id,
+              NULL,
+              NULL,
+              NULL,
+              NULL,
+              NULL,
+              FALSE,
+              'NotStarted',
+              NULL,
+              NULL,
+              NULL,
+              0
+            FROM flight_archive_case fac
             JOIN task_plan_item tpi ON tpi.id = fac.flight_id
-            SET fac.archive_status = 'Unarchived',
-                fac.archive_deadline_at_utc = DATE_ADD(tpi.scheduled_end_utc, INTERVAL 24 HOUR),
-                fac.archived_at_utc = NULL,
-                fac.completed_count = 0,
-                fac.total_count = (
-                    SELECT COUNT(*) FROM crew_archive_form caf WHERE caf.archive_case_id = fac.id
-                ),
-                fac.revision = 0
+            JOIN timeline_block tb ON tb.task_plan_item_id = tpi.id
             WHERE tpi.task_code = 'NX9001'
+              AND tb.crew_member_id IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM crew_archive_form existing
+                WHERE existing.archive_case_id = fac.id
+                  AND existing.crew_id = tb.crew_member_id
+              )
             """
         );
     }
@@ -123,19 +248,19 @@ class ArchiveIntegrationTests {
 
         mockMvc.perform(get(timelinePath("2026-04-24T00:00:00Z", "2026-04-27T00:00:00Z")).header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX9001 MFM-SIN')].archiveStatus").value(hasItem(ArchiveStatus.UNARCHIVED)))
+            .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX9001 MFM-SIN')].archiveStatus").value(hasItem(ArchiveStatus.OVERDUE)))
             .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX9001 MFM-SIN')].canEditArchive").value(hasItem(true)))
             .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX9001 MFM-SIN')].archiveDeadlineAtUtc").value(hasItem(notNullValue())));
 
         mockMvc.perform(get("/api/archive/cases/" + caseId).header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.archiveCase.archiveStatus").value(ArchiveStatus.UNARCHIVED))
+            .andExpect(jsonPath("$.data.archiveCase.archiveStatus").value(ArchiveStatus.OVERDUE))
             .andExpect(jsonPath("$.data.archiveCase.canEditArchive").value(true))
             .andExpect(jsonPath("$.data.crewForms.length()").value(2));
 
         mockMvc.perform(get("/api/archive/cases").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[?(@.taskCode == 'NX9001')].archiveStatus").value(hasItem(ArchiveStatus.UNARCHIVED)));
+            .andExpect(jsonPath("$.data[?(@.taskCode == 'NX9001')].archiveStatus").value(hasItem(ArchiveStatus.OVERDUE)));
 
         mockMvc.perform(put("/api/archive/forms/" + firstFormId)
                 .header("Authorization", "Bearer " + token)
@@ -143,7 +268,7 @@ class ArchiveIntegrationTests {
                 .content(savePayload(0, false, 255)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.crewArchiveForm.formStatus").value(CrewArchiveFormStatus.COMPLETED))
-            .andExpect(jsonPath("$.data.archiveCase.archiveStatus").value(ArchiveStatus.PARTIALLY_ARCHIVED))
+            .andExpect(jsonPath("$.data.archiveCase.archiveStatus").value(ArchiveStatus.OVERDUE))
             .andExpect(jsonPath("$.data.auditLogId", notNullValue()));
 
         mockMvc.perform(put("/api/archive/forms/" + secondFormId)
@@ -179,7 +304,7 @@ class ArchiveIntegrationTests {
 
         mockMvc.perform(get("/api/archive/cases").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[?(@.taskCode == 'NX8801')].archiveStatus").value(hasItem(ArchiveStatus.UNARCHIVED)));
+            .andExpect(jsonPath("$.data[?(@.taskCode == 'NX8801')].archiveStatus").value(hasItem(ArchiveStatus.OVERDUE)));
     }
 
     @Test
@@ -188,8 +313,8 @@ class ArchiveIntegrationTests {
         jdbcTemplate.update(
             """
             UPDATE task_plan_item
-            SET scheduled_start_utc = '2026-05-01 01:00:00',
-                scheduled_end_utc = '2026-05-01 05:15:00',
+            SET scheduled_start_utc = '2026-05-02 01:00:00',
+                scheduled_end_utc = '2026-05-02 05:15:00',
                 status = 'ASSIGNED'
             WHERE task_code = 'NX9001'
             """
@@ -293,7 +418,7 @@ class ArchiveIntegrationTests {
         mockMvc.perform(get("/api/pilot/me/archive-summary").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.length()").value(1))
-            .andExpect(jsonPath("$.data[0].taskCode").value("NX9001"));
+            .andExpect(jsonPath("$.data[0].taskCode").value("NX8804"));
     }
 
     @Test
@@ -367,7 +492,7 @@ class ArchiveIntegrationTests {
 
         mockMvc.perform(get("/api/archive/cases").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[?(@.taskCode == 'NX8801')].archiveStatus").value(hasItem(ArchiveStatus.UNARCHIVED)));
+            .andExpect(jsonPath("$.data[?(@.taskCode == 'NX8801')].archiveStatus").value(hasItem(ArchiveStatus.OVERDUE)));
     }
 
     private Long archiveCaseId() {

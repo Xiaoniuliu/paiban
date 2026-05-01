@@ -100,10 +100,6 @@ public class AssignmentEligibilityService {
         return new EligibilityResult(reasonCodes.isEmpty(), reasonCodes);
     }
 
-    public CurrentAvailability currentAvailability(CrewMember crew, Instant now) {
-        return currentAvailability(crew, activeStatusBlockByCrewId(now));
-    }
-
     public CurrentAvailability currentAvailability(CrewMember crew, Map<Long, TimelineBlock> activeStatusBlockByCrewId) {
         if (!"ACTIVE".equals(normalized(crew.getStatus())) || !"AVAILABLE".equals(normalized(crew.getAvailabilityStatus()))) {
             return new CurrentAvailability(false, null, null);

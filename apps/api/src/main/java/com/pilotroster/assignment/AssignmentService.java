@@ -83,8 +83,9 @@ public class AssignmentService {
     public AssignmentTaskDetailResponse taskDetail(Long taskId, AuthenticatedUser user) {
         TaskPlanItem task = task(taskId);
         Long rosterVersionId = draftRosterVersionId();
-        List<TimelineBlock> blocks = sortedBlocks(timelineBlockRepository
-            .findAllByTaskPlanItemIdAndRosterVersionIdOrderByIdAsc(task.getId(), rosterVersionId));
+        List<TimelineBlock> blocks = DRAFT_ASSIGNED_STATUS.equals(task.getStatus())
+            ? sortedBlocks(timelineBlockRepository.findAllByTaskPlanItemIdAndRosterVersionIdOrderByIdAsc(task.getId(), rosterVersionId))
+            : List.of();
         List<CrewMember> crewMembers = crewMemberRepository.findAll();
         Map<Long, CrewMember> crewById = crewMembers.stream()
             .collect(Collectors.toMap(CrewMember::getId, Function.identity()));
@@ -107,7 +108,11 @@ public class AssignmentService {
             .collect(Collectors.toSet());
         List<DraftRosteringTaskSummaryResponse> tasks = draftTasks.stream()
             .map(task -> {
-                DraftEditDecision decision = draftDecision(task, user, archivedTaskIds.contains(task.getId()));
+                DraftEditDecision decision = draftDecision(
+                    task,
+                    user,
+                    STATUS_PUBLISHED.equals(task.getStatus()) && archivedTaskIds.contains(task.getId())
+                );
                 return new DraftRosteringTaskSummaryResponse(
                     task.getId(),
                     task.getTaskCode(),
@@ -137,7 +142,7 @@ public class AssignmentService {
         if (STATUS_CANCELLED.equals(task.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Cancelled flights cannot be assigned");
         }
-        if (archiveCaseRepository.existsByFlightId(task.getId())) {
+        if (hasBlockingArchiveCase(task)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Archived flights must be handled from Archive Entry");
         }
         CrewMember pic = crew(request.picCrewId());
@@ -181,7 +186,7 @@ public class AssignmentService {
         if (!DRAFT_ASSIGNED_STATUS.equals(task.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only draft assignments can be cleared");
         }
-        if (archiveCaseRepository.existsByFlightId(task.getId())) {
+        if (hasBlockingArchiveCase(task)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Archived flights must be handled from Archive Entry");
         }
 
@@ -246,7 +251,7 @@ public class AssignmentService {
     ) {
         Long selectedPicCrewId = selectedCrewId(blocks, crewById, ROLE_PIC, "CAPTAIN");
         Long selectedFoCrewId = selectedCrewId(blocks, crewById, ROLE_FO, "FIRST_OFFICER");
-        boolean archiveExists = archiveCaseRepository.existsByFlightId(task.getId());
+        boolean archiveExists = hasBlockingArchiveCase(task);
         boolean published = STATUS_PUBLISHED.equals(task.getStatus());
         boolean cancelled = STATUS_CANCELLED.equals(task.getStatus());
         boolean canEdit = user.role() == UserRole.DISPATCHER && !archiveExists && !published && !cancelled;
@@ -411,6 +416,10 @@ public class AssignmentService {
             canEditDraft && DRAFT_ASSIGNED_STATUS.equals(task.getStatus()),
             canEditDraft ? null : readOnlyReason(user, archiveExists, published, cancelled)
         );
+    }
+
+    private boolean hasBlockingArchiveCase(TaskPlanItem task) {
+        return STATUS_PUBLISHED.equals(task.getStatus()) && archiveCaseRepository.existsByFlightId(task.getId());
     }
 
     private List<AssignmentRequirementResponse> assignmentRequirements(TaskPlanItem task) {

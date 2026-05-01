@@ -9,9 +9,8 @@ export type TimelineLegendStatus = {
 const flightTimelineLegendStatuses: TimelineLegendStatus[] = [
   { key: 'UNASSIGNED', className: 'gantt-task-UNASSIGNED', labelKey: 'taskStatusUNASSIGNED' },
   { key: 'ASSIGNED_DRAFT', className: 'gantt-task-ASSIGNED_DRAFT', labelKey: 'taskStatusASSIGNED_DRAFT' },
-  { key: 'ASSIGNED', className: 'gantt-task-ASSIGNED', labelKey: 'taskStatusASSIGNED' },
+  { key: 'PUBLISHED', className: 'gantt-task-PUBLISHED', labelKey: 'taskStatusPUBLISHED' },
   { key: 'VALIDATION_FAILED', className: 'gantt-task-VALIDATION_FAILED', labelKey: 'taskStatusVALIDATION_FAILED' },
-  { key: 'NEEDS_REVIEW', className: 'gantt-task-NEEDS_REVIEW', labelKey: 'taskStatusNEEDS_REVIEW' },
   { key: 'ARCHIVE_OPEN', className: 'gantt-archive-open-swatch', labelKey: 'archiveStatusUnarchived' },
   { key: 'ARCHIVE_DONE', className: 'gantt-archive-archived-swatch', labelKey: 'archiveStatusArchived' },
 ];

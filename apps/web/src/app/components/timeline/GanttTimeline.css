@@ -194,6 +194,36 @@
   top: 7px !important;
 }
 
+.gantt-timeline-item-content {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.15rem;
+  line-height: 1.4;
+}
+
+.gantt-timeline-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gantt-timeline-rule-hit-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.18);
+  padding: 0.02rem 0.32rem;
+  color: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
 .gantt-timeline-canvas .vis-item.gantt-timeline-item.gantt-archive-open::after,
 .gantt-timeline-canvas .vis-item.gantt-timeline-item.gantt-archive-archived::after {
   position: absolute;
@@ -438,4 +468,51 @@
 .gantt-timeline-canvas .vis-item.vis-selected {
   border-color: var(--ring);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 24%, transparent), 0 8px 18px rgba(15, 23, 42, 0.16);
+}
+
+.gantt-timeline-readonly-detail {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 94%, var(--muted));
+  padding: 0.65rem 0.75rem;
+}
+
+.gantt-timeline-readonly-detail-title {
+  margin-bottom: 0.45rem;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.gantt-timeline-readonly-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.gantt-timeline-readonly-detail-grid div {
+  min-width: 0;
+}
+
+.gantt-timeline-readonly-detail-grid dt {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.gantt-timeline-readonly-detail-grid dd {
+  margin: 0.15rem 0 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .gantt-timeline-readonly-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

@@ -6,7 +6,7 @@
 
 本轮不是“改菜单名”，而是把当前混杂的旧工作台收口成正式的 `排班工作台`，并将 `飞后归档` 从工作台流程中拆出，迁回 `校验与问题处理` 分组下的独立业务模块。
 
-同时，本轮把“timeline 只展示但仍有旧工作台气质”的问题纳入范围：不改变 display-only 业务边界，但要把展示壳、标题、空态、图例和页面组织改成新的正式模块风格，而不是继续像旧壳页面。
+同时，本轮把“timeline 逻辑仍残留自研工作台思维”的问题纳入范围：不改变 display-only 业务边界，但要把时间轴能力收紧回 `vis-timeline` 官方 `usingReact16` 示例级别，不再保留自研 workflow 逻辑。
 
 ## Why This Exists
 
@@ -15,7 +15,7 @@
 1. `待排航班`、`草稿排班`、`校验与发布` 在用户心智上高度重叠，正式主路径不清晰。
 2. `飞后归档` 仍挂在旧 workbench 组中，业务上像是排班中的一步，实际却属于发布后/落地后的独立处理链路。
 3. `apps/web/src/app/pages/Pages.tsx` 仍承接多个旧 workbench 分支，后续任何新增功能都容易继续回灌到这个历史汇流文件。
-4. timeline 虽已被降级为 display-only，但当前页面壳、说明语气和视觉组织仍偏旧 workbench，用户会误判它仍然是旧工作台的一部分。
+4. timeline 虽已被降级为 display-only，但其实现边界还没有完全退回官方示例级 adapter，用户和开发者都容易误判它仍然承担业务流程逻辑。
 
 如果不在 Phase 3 前先做这次边界重建，后续新增功能会继续在错误的模块边界上长，最终仍需大修。
 
@@ -33,7 +33,7 @@
   - `飞后归档`
 - 把 `飞后归档` 迁入 `校验与问题处理` 分组，作为正式模块入口。
 - 拆掉 `Pages.tsx` 中与被移除菜单相关的旧 workbench 分支，让后续新增功能不再回填到该文件。
-- 保留 timeline 的 display-only 业务边界，同时刷新其页面壳，使其表现为“正式观察页”，而不是“旧工作台遗留页”。
+- 保留 timeline 的 display-only 业务边界，同时把它重建为基于 `usingReact16` 示例的官方 adapter，不再保留自研 workflow 逻辑。
 - 保留旧路由的兼容退场，不引入无提示 404。
 
 ## Non-Goals
@@ -73,7 +73,7 @@
 
 本轮将其迁入 `校验与问题处理` 分组，路由与页面边界上都与旧 workbench 解耦。
 
-### 4. Timeline 永久保持 display-only，但页面体验要正式化
+### 4. Timeline 永久保持 display-only，并回退到官方示例级逻辑
 
 timeline 的业务边界保持不变：
 
@@ -82,12 +82,23 @@ timeline 的业务边界保持不变：
 - 不承接 run-day adjustment 业务动作
 - 不成为 workflow state 的来源
 
-但页面呈现需要收口成新的正式观察页：
+timeline 的实现边界进一步收紧为官方 `usingReact16` 示例级能力：
 
-- 不再使用旧 workbench 风格的混合壳
-- 标题、说明、图例、空态和时间窗说明按正式模块组织
-- 允许保留 vis-timeline 的原生 pan/zoom 体验
-- 不引入新的业务按钮或自研时间轴动作
+- 使用 `new Timeline(container, items, groups, options)`
+- 使用官方 `template(item, element, data)` 渲染 item 内部轻量只读信息
+- 保留官方 `select` / `click` 高亮与只读信息展示
+- 可使用官方 `tooltip.template` 展示 hover 摘要
+- 不在 timeline 之上叠加自研业务协调器
+
+timeline 保留的前端责任只有：
+
+- 后端事实 -> `groups`
+- 后端事实 -> `items`
+- 当前状态 -> `className`
+- 当前 rule-hit 摘要 -> `template` / `tooltip` / 只读详情区
+- 选择高亮 -> 官方 `select` / `click`
+
+允许保留 vis-timeline 的原生 pan/zoom 体验，但不引入新的业务按钮或自研时间轴动作。
 
 ## Target Information Architecture
 
@@ -208,6 +219,13 @@ timeline 的业务边界保持不变：
 - 不允许在该文件继续新增排班业务分支
 - 如需兼容老 import，可暂时保留极少量导出层，但不保留业务实现
 
+Implemented status on 2026-05-01:
+
+- `Pages.tsx` has been reduced to a thin export/view wrapper.
+- The old run-day adjustment workbench implementation was removed from `Pages.tsx`.
+- `/rostering-workbench/run-day-adjustments` now renders a retired compatibility page with no timeline, no drawer, and no edit action.
+- Phase 3 code must not reconnect run-day adjustment to the workbench route; if it returns, it must be a separately designed module.
+
 ## Maintainability Guardrails
 
 1. `排班工作台` 只允许观察入口和 draft 入口，不允许重新加入 publish / archive / run-day 业务动作。
@@ -219,7 +237,30 @@ timeline 的业务边界保持不变：
 4. 兼容旧路由只能重定向或退场提示，不能继续长新能力。
 5. 新增功能必须优先进入正式模块目录，不允许再向 `Pages.tsx` 或旧 workbench 汇流层堆分支。
 6. 跨模块共享只能通过明确的共享组件/hook，不允许页面内部状态互相渗透。
-7. timeline 的视觉刷新必须停留在 display shell 范围内，不能借机重新恢复业务按钮或业务入口。
+7. timeline 只能使用官方示例级能力：`template`、`tooltip.template`、`select` / `click`、原生高亮；不能借机重新恢复业务按钮、业务入口或自研 workflow。
+
+## Timeline Rule-Hit Projection
+
+timeline 可以展示当前规则命中的轻量提示，但只能作为后端当前事实的只读投影。
+
+允许的形式：
+
+- 保持现有状态颜色和状态语义不变
+- 在色块上增加轻量 rule-hit 标识，例如 `!`、`rule`、`2 hits`
+- 在 tooltip 中展示当前 rule-hit 摘要
+- 在选中后的只读信息区展示完整当前摘要
+
+限制：
+
+- timeline 不缓存历史 rule-hit
+- timeline 不自行判断“是否已修复”
+- timeline 不保留“曾经违规”的前端痕迹
+- timeline 不直接进入规则处理动作
+
+结果：
+
+- 当重新校验后，后端不再返回该 rule-hit 摘要时，timeline 标识和摘要应自然消失
+- 当后端仍返回 rule-hit 摘要时，timeline 继续按当前结果投影显示
 
 ## Implementation Shape
 
@@ -248,7 +289,7 @@ timeline 的业务边界保持不变：
 
 - 菜单与入口点击回归
 - 旧路由兼容回归
-- timeline display-only 回归
+- timeline display-only 与 rule-hit 只读投影回归
 - Console / Network 观察，确保没有新增意外红错、404、500
 
 ## Acceptance Criteria
@@ -270,8 +311,10 @@ timeline 的业务边界保持不变：
 ### Timeline 体验验收
 
 - timeline 页面保留 display-only 业务边界。
-- timeline 页面标题、说明、图例和空态表现为正式观察页，而不是旧 workbench 遗留页。
-- 不引入新的 timeline 自研动作，也不恢复旧 toolbar 逻辑。
+- timeline 使用官方 `usingReact16` 示例级逻辑：`template`、`tooltip.template`、`select` / `click`。
+- timeline 状态颜色和状态语义保持原样。
+- 如后端返回当前 rule-hit 摘要，timeline 能显示轻量标识和当前摘要；如后端清除该结果，标识和摘要同步消失。
+- 不引入新的 timeline 自研动作，也不恢复旧 toolbar 逻辑或业务入口。
 
 ### 测试验收
 
@@ -295,7 +338,7 @@ timeline 的业务边界保持不变：
 - workbench 页面边界已重建
 - archive 已脱离旧 workbench
 - 旧路由已兼容退场
-- timeline 已完成 display-only 正式化展示
+- timeline 已完成基于官方示例能力的 display-only 重建
 - 真实点击与 F12 Gate 通过
 
 届时，Phase 3 新功能即可围绕以下稳定边界继续开发：

@@ -245,94 +245,65 @@ What was done:
 
 ## Current Verified State
 
-At last verification in this session:
+At the latest Phase 3 preflight verification:
 
-- Backend targeted integration tests for task / run-data flows were green
-- Frontend typecheck had **no new errors introduced by this work**
-- Remaining TypeScript errors are repository-historical:
-  - `D:\paiban2\apps\web\src\app\components\timeline\VisTimelineAdapter.tsx`
-  - `D:\paiban2\apps\web\src\app\lib\time.ts`
-  - `D:\paiban2\apps\web\src\main.tsx`
+- Backend targeted integration tests passed for task planning, assignment, eligibility, crew, flight operations, and archive contracts.
+- `npm run build` passed for `apps\web`.
+- `npm run check:i18n` passed for `apps\web`.
+- Playwright real-click + F12 checks passed for dispatcher login, protected actions, draft rostering read-only/edit behavior, display-only timeline behavior, workbench route compatibility, archive placement, and rule-hit projection.
+- The remaining frontend build warning is the known large chunk warning and is not a Phase 3 blocker.
 
-## Latest Maintainability Review Findings
+## Maintainability Findings Resolved Before Phase 3
 
-The most recent maintainability review for `航班运行中心` + `机组资源中心` identified these items.
+The maintainability findings from the latest review have been closed or moved behind explicit archived boundaries:
 
-### P1
+1. Crew writes no longer require the frontend to perform a profile create followed by an operational update. Create is atomic, and edits choose the narrow backend contract needed for the changed fields.
+2. Retired `external-work` APIs are no longer active workflow contracts; active pages do not call them, and the backend returns retired/archived semantics instead of keeping a parallel live path.
+3. Flight operations orchestration was moved into smaller hooks/sections, with backend reference-protection as the source for edit/delete state.
+4. Crew and flight operations action errors now surface domain messages separately from load failures.
+5. Assignment readiness and task-detail candidate eligibility reuse task-window/status data instead of re-querying once per crew.
+6. Draft queue summary decisions avoid repeated archive existence checks and expose one backend decision per row.
+7. Timeline and workbench behavior are display-only; item clicks do not open assignment, archive, or run-day workflows.
 
-1. **Crew write model is still fat**
-   - File:
-     - `D:\paiban2\apps\api\src\main\java\com\pilotroster\crew\CrewMemberController.java`
-   - Problem:
-     - UI is split into four tabs, but writes still go through one large `CrewMember` payload and one large update path.
+## Phase 3 Preflight Residue Cleanup
 
-2. **Crew backend still carries the retired duplicate workflow**
-   - File:
-     - `D:\paiban2\apps\api\src\main\java\com\pilotroster\crew\CrewMemberController.java`
-   - Problem:
-     - `external-work` CRUD and the `duty-calendar` external-work contract still exist, overlapping with the timeline/status model.
+Completed after the workbench boundary review:
 
-### P2
+- `D:\paiban2\apps\web\src\app\pages\Pages.tsx` is now a thin export / view wrapper only. The old workbench implementations for unassigned tasks, draft versions, and run-day adjustments were removed from this file.
+- `/rostering-workbench/run-day-adjustments` now lands on an explicit retired compatibility page with no timeline and no edit controls.
+- The compatibility Playwright test now asserts the retired run-day route does **not** render `gantt-timeline`.
+- Remaining `runDayAdjustment` API/type names are not consumed by the workbench main path; they are reserved only for a future independent business module decision.
 
-3. **Flight operations center still has a large central orchestrator**
-   - File:
-     - `D:\paiban2\apps\web\src\app\pages\FlightOperationsPages.tsx`
+## Phase 3 Entry Flow
 
-4. **Run-data reference protection still lives as frontend inference**
-   - File:
-     - `D:\paiban2\apps\web\src\app\pages\FlightOperationsPages.tsx`
+Phase 3 should start from the now-stable draft rostering boundary:
 
-5. **Both centers still collapse many domain failures into generic `saveFailed`**
-   - Files most relevant:
-     - `D:\paiban2\apps\web\src\app\pages\FlightOperationsPages.tsx`
-     - `D:\paiban2\apps\web\src\app\pages\CrewInformationPage.tsx`
-
-## Agreed Next Implementation Order
-
-The next ordered fix plan, agreed before this handoff, is:
-
-1. Tighten crew write boundaries
-   - split or narrow the `CrewMember` write path so future fields do not keep inflating one payload/dialog
-
-2. Retire or formally archive the duplicate `external-work` backend contract
-   - remove it from mainline behavior, not just from navigation
-
-3. Thin `FlightOperationsPage`
-   - move orchestration into smaller hooks/components
-
-4. Move run-data reference protection toward a backend/view-model contract
-   - stop manually deriving three protection sets in the UI
-
-5. Improve domain error feedback
-   - surface meaningful conflict/reference messages
-   - stop reducing most failures to generic `saveFailed`
+1. Freeze Phase 3 draft rostering contract around `DraftRosteringPage` and `AssignmentDrawer`.
+2. Expand assignment validation and candidate explanation only through backend eligibility/read models.
+3. Keep timeline as a read-only projection of persisted backend facts.
+4. Route rule issues through `校验与问题处理`; do not add issue handling behavior to timeline or workbench pages.
+5. Route publish/export results through `发布结果` / `结果导出`; do not restore old `校验与发布` workbench ownership.
+6. Keep post-flight archive under `校验与问题处理 -> 飞后归档`.
 
 ## Important Open Cautions
 
-### `Pages.tsx` still carries legacy implementations
+### Run-day adjustment is not a Phase 3 workbench feature
 
-Even after the split, `Pages.tsx` still contains substantial old shared implementations and legacy workbench code. This is an ongoing maintainability risk and should be treated carefully in future cleanup work.
+The frontend workbench route is retired. If run-day adjustment returns later, it should be designed as an independent module with its own route, page directory, backend contract review, tests, and product acceptance criteria.
 
-Key file:
+### `CrewExternalWorkPage.tsx` remains a detached file
 
-- `D:\paiban2\apps\web\src\app\pages\Pages.tsx`
-
-### `CrewExternalWorkPage.tsx` still exists as a detached file
-
-- It is no longer part of the main route/menu contract
-- But the file still exists in the repo:
-  - `D:\paiban2\apps\web\src\app\pages\CrewExternalWorkPage.tsx`
-
-This is currently a detached residue, not a main-path page.
+- It is no longer part of the main route/menu contract.
+- It should not be reconnected during Phase 3.
+- If removed later, do it as a separate cleanup with route and API checks.
 
 ## Handoff Recommendation
 
-When resuming in the next window:
+When resuming Phase 3:
 
-1. Open this file first
+1. Open this file first.
 2. Open:
    - `D:\paiban2\docs\pilot-rostering-system-rearchitecture-master-plan.md`
-   - `D:\paiban2\docs\superpowers\plans\2026-04-30-phase-2-crew-resource-module-plan.md`
-3. Resume directly from the ordered maintainability fix list above
-
-If continuing implementation, start with the two `P1` items first.
+   - `D:\paiban2\docs\superpowers\plans\2026-05-01-phase-3-preflight-strict-cleanup-task-directory.md`
+   - `D:\paiban2\docs\superpowers\specs\2026-05-01-phase-3-workbench-boundary-rebuild-design.md`
+3. Start Phase 3 from `DraftRosteringPage` / `AssignmentDrawer`; do not add new workflow behavior through `Pages.tsx` or timeline item clicks.

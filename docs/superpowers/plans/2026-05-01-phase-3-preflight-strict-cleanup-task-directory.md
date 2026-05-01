@@ -17,6 +17,16 @@ This stage is not a feature phase. It exists to make the current main path stabl
 - Frontend action availability must match backend rules.
 - Timeline remains display-only and is not used as an edit/delete/draft authority.
 
+## Phase 3 Workbench Boundary Rebuild Status
+
+- [x] Workbench boundary rebuild complete: the old Legacy group is now the formal `排班工作台` and only owns flight view, crew view, and draft rostering.
+- [x] Archive moved under validation center: `飞后归档` is reached from `校验与问题处理`, while the old workbench archive URL remains a compatibility entry.
+- [x] Old workbench routes remain compatible without reintroducing old ownership: removed menu entries are hidden, and direct URLs land on the formal destination or retired compatibility page.
+- [x] Old run-day adjustment workbench implementation removed from `Pages.tsx`; `/rostering-workbench/run-day-adjustments` now renders an explicit retired compatibility page with no timeline/edit surface.
+- [x] Timeline rebuilt on the official vis-timeline display seam: initialization, groups/items, template, tooltip template, native pan/zoom, selection, and display-only read model.
+- [x] Timeline rule-hit marker and summary are current backend projections only: markers appear when returned by timeline data, open a read-only detail on color-block click, and disappear when backend results are cleared.
+- [x] Real click + F12 gate passed for workbench navigation, archive placement, display-only timeline behavior, compatibility routes, and rule-hit projection.
+
 ## Subagent Workstreams
 
 ### A. Flight Task Module
@@ -106,7 +116,7 @@ Checklist:
 Resolved issues:
 
 - Fixed: PILOT no longer sees crew-resource module routes that call dispatcher/manager/admin-only list APIs. Pilot users stay on the pilot portal path.
-- Fixed: crew edit no longer performs profile and operational updates as two frontend mutations. The page now uses a single backend `profile-operational` update contract, while the existing split endpoints remain available for explicitly layered writes.
+- Fixed: crew create is atomic from the user's perspective. Crew edit now chooses profile-only, operational-only, or combined profile-operational backend contracts based on the fields changed, while the existing split endpoints remain available for explicitly layered writes.
 
 Open architecture note:
 
@@ -139,6 +149,7 @@ Resolved issues:
 - Fixed: cancelled assignment timeline blocks no longer create assignment `TIME_CONFLICT` decisions.
 - Fixed: assignment task detail now loads crew candidates once and reuses the task-window block query across candidate eligibility checks.
 - Fixed: saving assignment draft now reuses one task-window block query for backend eligibility validation.
+- Fixed: `Pages.tsx` no longer carries old workbench business branches for unassigned tasks, draft versions, or run-day adjustments. The run-day compatibility route is a clear retired page, not an active legacy workflow.
 
 ## Execution Batches
 
@@ -173,6 +184,9 @@ Verification result:
 - Real click evidence: Chromium opened the workbench flight timeline, verified the timeline rendered, clicked a visible timeline item, and confirmed no archive drawer, no assignment drawer, no Console errors, no PageError, no request failures, and no unexpected 4xx/5xx responses during the captured window.
 - Passed: `npx playwright test e2e/framework.spec.ts -g "protected|display-only" --project=chromium` in `apps\web`
 - Gate A evidence: flight-task downstream rows stay read-only; a forced protected task delete returns the expected `409` and shows `Flights already entered downstream flow cannot be deleted`; run-data referenced rows are disabled with the reference-protection reason; draft rostering allows manager read-only inspection and surfaces the expected archive `409` message on dispatcher save. No unexpected Console, PageError, request failure, or unexpected `4xx/5xx` appeared in the captured protected-action windows.
+- Passed: `npx playwright test e2e/framework.spec.ts -g "workbench|archive|display-only|redirect|rule-hit" --project=chromium` in `apps\web`
+- Workbench boundary evidence: Chromium verified the workbench menu has only flight view, crew view, and draft rostering; archive is reachable from validation center; removed workbench routes remain compatible; timeline item clicks do not open assignment/archive drawers; rule-hit markers render from mocked backend results, open read-only detail on color-block click, and disappear after backend results are cleared. No unexpected Console, PageError, request failure, or unexpected `4xx/5xx` appeared in the captured windows.
+- Latest residue evidence: the old run-day URL renders the retired compatibility page and does not render `gantt-timeline`, preventing accidental reuse of the legacy run-day workflow during Phase 3.
 - Phase 3 readiness: Gate A passed. Phase 3 can start from the draft rostering path without carrying a known Phase 2 / Phase 2.5 protection-contract blocker.
 - Note: `npm run build` still reports the existing large chunk warning; it is not introduced by this cleanup and does not block Phase 3.
 
@@ -181,3 +195,4 @@ Verification result:
 - `mvn.cmd -f apps\api\pom.xml "-Dtest=TaskPlanControllerIntegrationTests,OperationsMasterDataIntegrationTests,CrewMemberControllerIntegrationTests,AssignmentIntegrationTests,TaskPlanControllerIntegrationTests" test`
 - `npm run build` in `apps\web`
 - `npm run check:i18n` in `apps\web`
+- `npx playwright test e2e/framework.spec.ts -g "workbench|archive|display-only|redirect|rule-hit" --project=chromium` in `apps\web`

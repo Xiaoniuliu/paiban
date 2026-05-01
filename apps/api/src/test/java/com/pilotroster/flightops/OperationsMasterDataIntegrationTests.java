@@ -40,7 +40,7 @@ class OperationsMasterDataIntegrationTests {
         jdbcTemplate.update("DELETE FROM task_plan_import_batch WHERE batch_no = 'TEST-BATCH-9000'");
         jdbcTemplate.update("DELETE FROM aircraft_registry WHERE aircraft_no = 'B-TEST01'");
         jdbcTemplate.update("DELETE FROM flight_route WHERE route_code = 'MFM-TEST'");
-        jdbcTemplate.update("DELETE FROM airport_dictionary WHERE iata_code = 'TST'");
+        jdbcTemplate.update("DELETE FROM airport_dictionary WHERE iata_code IN ('TS2', 'TST')");
     }
 
     @Test
@@ -421,6 +421,65 @@ class OperationsMasterDataIntegrationTests {
             .andExpect(status().isOk());
         mockMvc.perform(delete("/api/airports/" + airportId).header("Authorization", "Bearer " + token))
             .andExpect(status().isOk());
+    }
+
+    @Test
+    void unreferencedAirportRemainsMutableAndDeletable() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+
+        MvcResult airportResult = mockMvc.perform(post("/api/airports")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "iataCode": "TS2",
+                      "nameZh": "测试机场",
+                      "nameEn": "Test Airport",
+                      "timezoneName": "Asia/Macau",
+                      "utcOffsetMinutes": 480,
+                      "countryCode": "TS",
+                      "status": "ACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long airportId = extractLong(airportResult.getResponse().getContentAsString(), "\"id\":");
+
+        mockMvc.perform(put("/api/airports/" + airportId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "iataCode": "TS2",
+                      "nameZh": "测试机场更新",
+                      "nameEn": "Test Airport Updated",
+                      "timezoneName": "UTC",
+                      "utcOffsetMinutes": 0,
+                      "countryCode": "US",
+                      "status": "INACTIVE"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.iataCode").value("TS2"))
+            .andExpect(jsonPath("$.data.nameEn").value("Test Airport Updated"))
+            .andExpect(jsonPath("$.data.timezoneName").value("UTC"))
+            .andExpect(jsonPath("$.data.utcOffsetMinutes").value(0))
+            .andExpect(jsonPath("$.data.countryCode").value("US"))
+            .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+
+        mockMvc.perform(delete("/api/airports/" + airportId)
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id").value(airportId));
+
+        Integer remaining = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM airport_dictionary WHERE id = ?",
+            Integer.class,
+            airportId
+        );
+        if (remaining == null || remaining != 0) {
+            throw new AssertionError("Expected airport to be physically deleted");
+        }
     }
 
     @Test

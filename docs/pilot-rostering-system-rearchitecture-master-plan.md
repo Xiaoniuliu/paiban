@@ -1629,6 +1629,18 @@ Completion gate:
 
 - draft rostering closed loop works from task facts and crew facts without requiring legacy timeline-derived truth
 
+Current entry status as of 2026-05-01:
+
+- Phase 3 can start from `DraftRosteringPage` and `AssignmentDrawer` as the only formal draft-editing path.
+- Timeline and workbench views are display-only and no longer open assignment, archive, or run-day business drawers from color-block clicks.
+- Old workbench overlap was removed from the active path:
+  - `Pages.tsx` is now only a thin export/view wrapper.
+  - `待排航班` compatibility routes land on the formal draft rostering page.
+  - `校验与发布` compatibility routes land on the formal publish-result page.
+  - `飞后归档` is owned by the validation/archive module.
+  - `/rostering-workbench/run-day-adjustments` renders a retired compatibility page with no timeline or edit controls.
+- Phase 3 must not reconnect run-day adjustment, archive entry, or publish behavior through the workbench or timeline.
+
 ### 12.5 Phase 4: Timeline downgrade to display adapter
 
 Goal:
@@ -1651,6 +1663,11 @@ Out of scope:
 Completion gate:
 
 - timeline only consumes backend truth and no longer generates business truth
+
+Current status:
+
+- The display-adapter downgrade has already been pulled forward as Phase 2.5 preflight work.
+- The remaining Phase 3 rule is to preserve that boundary while extending draft rostering behavior: timeline may display backend status/rule-hit projections, but it must not generate, promote, or edit assignment state.
 
 ### 12.6 Phase 5: Issue-handling and publish replacement
 

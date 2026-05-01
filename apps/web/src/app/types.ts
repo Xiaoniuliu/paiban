@@ -507,6 +507,9 @@ export interface GanttTimelineBlock {
   crewArchiveSummary: CrewArchiveSummary;
   canEditArchive: boolean;
   archiveReadOnlyReason: string | null;
+  ruleHitCount?: number | null;
+  ruleHitSummary?: string | null;
+  ruleHitCodes?: string[] | null;
 }
 
 export interface ArchiveCase {

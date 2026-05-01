@@ -45,8 +45,6 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
   const [error, setError] = useState('');
   const [loadWarning, setLoadWarning] = useState('');
   const canEdit = user.role === 'DISPATCHER' || user.role === 'ADMIN';
-  const crewProfileErrorFallback = t('crewProfileSaveFailed');
-  const crewQualificationErrorFallback = t('crewQualificationSaveFailed');
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -65,7 +63,7 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
         setQualifications(qualificationResult.status === 'fulfilled' ? qualificationResult.value : []);
         setTimelineBlocks(blockResult.status === 'fulfilled' ? blockResult.value : []);
         if (qualificationResult.status !== 'fulfilled' || blockResult.status !== 'fulfilled') {
-          setLoadWarning(t('crewLoadError'));
+          setLoadWarning(t('crewLoadWarning'));
         }
       })
       .finally(() => setLoading(false));
@@ -79,16 +77,18 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
     event.preventDefault();
     if (!editingCrew) return;
     setSaving(true);
-    saveCrewProfile(api, editingCrew).then(() => {
+    const errorFallback = t(editingCrew.id ? 'crewEditFailed' : 'crewCreateFailed');
+    saveCrewProfile(api, editingCrew, editingCrew.id ? crewById.get(editingCrew.id) : undefined).then(() => {
       setEditingCrew(null);
       refresh();
-    }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewProfileErrorFallback))).finally(() => setSaving(false));
+    }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, errorFallback))).finally(() => setSaving(false));
   };
 
   const saveQualification = (event: FormEvent) => {
     event.preventDefault();
     if (!editingQualification?.crewMemberId) return;
     setSaving(true);
+    const errorFallback = t(editingQualification.id ? 'crewQualificationEditFailed' : 'crewQualificationCreateFailed');
     const payload = {
       ...editingQualification,
       effectiveFromUtc: toOptionalUtc(editingQualification.effectiveFromUtc, timezone),
@@ -100,19 +100,19 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
     action.then(() => {
       setEditingQualification(null);
       refresh();
-    }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewQualificationErrorFallback))).finally(() => setSaving(false));
+    }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, errorFallback))).finally(() => setSaving(false));
   };
 
   const disableCrew = (crewId: number) => {
-    api.disableCrewMember(crewId).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewProfileErrorFallback)));
+    api.disableCrewMember(crewId).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, t('crewDisableFailed'))));
   };
 
   const reactivateCrew = (crewId: number) => {
-    api.reactivateCrewMember(crewId).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewProfileErrorFallback)));
+    api.reactivateCrewMember(crewId).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, t('crewReactivateFailed'))));
   };
 
   const disableQualification = (qualification: CrewQualification) => {
-    api.disableCrewQualification(qualification.crewMemberId, qualification.id).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewQualificationErrorFallback)));
+    api.disableCrewQualification(qualification.crewMemberId, qualification.id).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, t('crewQualificationDisableFailed'))));
   };
 
   const crewById = useMemo(() => new Map(crewRows.map((crew) => [crew.id, crew])), [crewRows]);
@@ -208,9 +208,28 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
 
 type CrewProfileForm = CrewProfileWritePayload & CrewOperationalWritePayload & { id?: number };
 
-async function saveCrewProfile(api: PageProps['api'], form: CrewProfileForm): Promise<CrewMember> {
+async function saveCrewProfile(api: PageProps['api'], form: CrewProfileForm, existingCrew?: CrewMember): Promise<CrewMember> {
   if (form.id) {
-    return api.updateCrewProfileOperational(form.id, crewProfileFormToCreatePayload(form));
+    const profilePayload = crewProfileFormToProfilePayload(form);
+    const operationalPayload = crewProfileFormToOperationalPayload(form);
+    const profileChanged = !existingCrew || hasCrewProfileChanges(existingCrew, profilePayload);
+    const operationalChanged = !existingCrew || hasCrewOperationalChanges(existingCrew, operationalPayload);
+    if (profileChanged && operationalChanged) {
+      return api.updateCrewProfileOperational(form.id, {
+        ...profilePayload,
+        ...operationalPayload,
+      });
+    }
+    if (profileChanged) {
+      return api.updateCrewProfile(form.id, profilePayload);
+    }
+    if (operationalChanged) {
+      return api.updateCrewOperational(form.id, operationalPayload);
+    }
+    return api.updateCrewProfileOperational(form.id, {
+      ...profilePayload,
+      ...operationalPayload,
+    });
   }
   return api.createCrewMember(crewProfileFormToCreatePayload(form));
 }
@@ -277,6 +296,24 @@ function crewProfileFormToCreatePayload(form: CrewProfileForm): CrewCreateWriteP
     ...crewProfileFormToProfilePayload(form),
     ...crewProfileFormToOperationalPayload(form),
   };
+}
+
+function hasCrewProfileChanges(crew: CrewMember, payload: CrewProfileWritePayload) {
+  return crew.crewCode !== payload.crewCode
+    || crew.employeeNo !== payload.employeeNo
+    || crew.nameZh !== payload.nameZh
+    || crew.nameEn !== payload.nameEn
+    || crew.homeBase !== payload.homeBase;
+}
+
+function hasCrewOperationalChanges(crew: CrewMember, payload: CrewOperationalWritePayload) {
+  return crew.roleCode !== payload.roleCode
+    || crew.rankCode !== payload.rankCode
+    || crew.aircraftQualification !== payload.aircraftQualification
+    || crew.acclimatizationStatus !== payload.acclimatizationStatus
+    || crew.bodyClockTimezone !== payload.bodyClockTimezone
+    || crew.normalCommuteMinutes !== payload.normalCommuteMinutes
+    || crew.externalEmploymentFlag !== payload.externalEmploymentFlag;
 }
 
 function defaultQualificationForm(crewMemberId?: number): Partial<CrewQualification> {

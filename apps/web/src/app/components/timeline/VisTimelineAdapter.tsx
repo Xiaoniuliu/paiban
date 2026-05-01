@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { DataSet, Timeline } from 'vis-timeline/standalone';
 import type {
+  IdType,
   TimelineGroup,
   TimelineItem,
   TimelineOptions,
@@ -14,6 +15,7 @@ interface VisTimelineAdapterProps {
   options: TimelineOptions;
   windowStart: string;
   windowEnd: string;
+  onItemSelect?: (itemId: IdType | null) => void;
 }
 
 export function VisTimelineAdapter({
@@ -23,11 +25,17 @@ export function VisTimelineAdapter({
   options,
   windowStart,
   windowEnd,
+  onItemSelect,
 }: VisTimelineAdapterProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<Timeline | null>(null);
   const groupsSignatureRef = useRef('');
   const itemsSignatureRef = useRef('');
+  const onItemSelectRef = useRef(onItemSelect);
+
+  useEffect(() => {
+    onItemSelectRef.current = onItemSelect;
+  }, [onItemSelect]);
 
   useEffect(() => {
     if (!containerRef.current || timelineRef.current) return;
@@ -78,7 +86,48 @@ export function VisTimelineAdapter({
     timeline.setWindow(windowStart, windowEnd, { animation: false });
   }, [windowEnd, windowStart]);
 
-  return <div ref={containerRef} className={className} />;
+  useEffect(() => {
+    const timeline = timelineRef.current;
+    const container = containerRef.current;
+    if (!timeline || !container) return;
+
+    const handleSelect = (properties?: { items?: IdType[] }) => {
+      onItemSelectRef.current?.(properties?.items?.[0] ?? null);
+    };
+    const handleClick = (properties?: { item?: IdType | null }) => {
+      if (properties?.item != null) onItemSelectRef.current?.(properties.item);
+    };
+    const handleDomClick = (event: MouseEvent) => {
+      const target = event.target instanceof Element
+        ? event.target.closest<HTMLElement>('[data-timeline-item-id]')
+        : null;
+      const itemId = target?.dataset.timelineItemId;
+      if (itemId != null) onItemSelectRef.current?.(itemId);
+    };
+
+    timeline.on('select', handleSelect);
+    timeline.on('click', handleClick);
+    container.addEventListener('click', handleDomClick, true);
+    return () => {
+      timeline.off('select', handleSelect);
+      timeline.off('click', handleClick);
+      container.removeEventListener('click', handleDomClick, true);
+    };
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className={className}
+      onClickCapture={(event) => {
+        const target = event.target instanceof Element
+          ? event.target.closest<HTMLElement>('[data-timeline-item-id]')
+          : null;
+        const itemId = target?.dataset.timelineItemId;
+        if (itemId != null) onItemSelectRef.current?.(itemId);
+      }}
+    />
+  );
 }
 
 function sameWindow(currentStart: Date, currentEnd: Date, nextStart: string, nextEnd: string) {
@@ -105,5 +154,6 @@ function timelineItemsSignature(items: TimelineItem[]) {
     item.className,
     item.title,
     item.type,
+    JSON.stringify((item as TimelineItem & { displayMetadata?: unknown }).displayMetadata ?? null),
   ].join('\u001f')).join('\u001e');
 }

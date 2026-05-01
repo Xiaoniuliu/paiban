@@ -188,6 +188,8 @@ public class TaskPlanController {
             taskId,
             taskId
         );
+        jdbcTemplate.update("DELETE FROM crew_archive_form WHERE flight_id = ?", taskId);
+        jdbcTemplate.update("DELETE FROM flight_archive_case WHERE flight_id = ?", taskId);
         timelineBlockRepository.deleteAllByTaskPlanItemId(taskId);
     }
 

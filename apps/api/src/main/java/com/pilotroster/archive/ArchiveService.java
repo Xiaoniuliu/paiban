@@ -139,6 +139,9 @@ public class ArchiveService {
         List<GanttTimelineBlockResponse> responses = new ArrayList<>();
 
         for (TimelineBlock block : timelineBlocks) {
+            if (!isVisibleTimelineBlock(block, taskById.get(block.getTaskPlanItemId()))) {
+                continue;
+            }
             if (block.getTaskPlanItemId() != null) {
                 taskIdsWithBlocks.add(block.getTaskPlanItemId());
             }
@@ -230,6 +233,13 @@ public class ArchiveService {
             && (STATUS_ASSIGNED.equals(task.getStatus()) || STATUS_PUBLISHED.equals(task.getStatus()))
             && !effectiveEndUtc(task).isAfter(now)
             && blocks.stream().anyMatch(block -> block.getCrewMemberId() != null);
+    }
+
+    private boolean isVisibleTimelineBlock(TimelineBlock block, TaskPlanItem task) {
+        if (task == null || block.getTaskPlanItemId() == null) {
+            return true;
+        }
+        return !("UNASSIGNED".equals(task.getStatus()) && "ASSIGNED_DRAFT".equals(block.getStatus()));
     }
 
     private Instant effectiveEndUtc(TaskPlanItem task) {

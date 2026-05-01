@@ -84,17 +84,13 @@ export const menuGroups: MenuGroup[] = [
     ],
   },
   {
-    id: 'menu-legacy',
+    id: 'menu-workbench',
     icon: LayoutGrid,
     roles: operationsRoles,
     children: [
       { id: 'workbench-flight-view', roles: operationsRoles },
       { id: 'workbench-crew-view', roles: operationsRoles },
-      { id: 'workbench-unassigned-tasks', roles: operationsRoles },
       { id: 'draft-rostering', roles: operationsRoles },
-      { id: 'workbench-draft-versions', roles: operationsRoles },
-      { id: 'workbench-run-day-adjustments', roles: operationsRoles },
-      { id: 'workbench-archive-entry', roles: operationsRoles },
     ],
   },
   {
@@ -105,6 +101,7 @@ export const menuGroups: MenuGroup[] = [
       { id: 'validation-violation-handling', roles: operationsRoles },
       { id: 'validation-release-gates', roles: operationsRoles },
       { id: 'validation-export', roles: operationsRoles },
+      { id: 'workbench-archive-entry', roles: operationsRoles },
     ],
     aliases: [
       'validation-overview',

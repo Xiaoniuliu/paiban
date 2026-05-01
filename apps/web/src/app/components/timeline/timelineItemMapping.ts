@@ -1,6 +1,5 @@
 import type {
   TimelineGroup,
-  TimelineItem,
 } from 'vis-timeline/standalone';
 import type {
   CrewMember,
@@ -16,25 +15,41 @@ import {
   timelineVisualClassName,
 } from './timelineVisuals';
 import type { TimelineDisplayBlock, TimelineViewMode } from './timelineTypes';
+import type { TimelineDisplayItem, TimelineRuleHitDisplay } from './timelineTypes';
 
-export function toTimelineItem(block: TimelineDisplayBlock, t: (key: string) => string, viewMode: TimelineViewMode): TimelineItem {
+export function toTimelineItem(block: TimelineDisplayBlock, t: (key: string) => string, viewMode: TimelineViewMode): TimelineDisplayItem {
   const visualClassName = timelineVisualClassName(block, viewMode);
   const archiveClassName = viewMode === 'FLIGHT' ? archiveMarkerClassName(block.archiveStatus) : '';
+  const label = block.timelineItemLabel ?? timelineItemLabel(block);
+  const statusLabel = timelineStatusLabel(block, t, viewMode);
+  const archiveLabel = archiveClassName ? archiveStatusLabel(block.archiveStatus, t) : '';
+  const ruleHit = buildRuleHitDisplay(block);
   return {
     id: itemId(block, viewMode),
     group: groupId(block, viewMode),
     start: block.startUtc,
     end: block.endUtc,
-    content: escapeHtml(block.timelineItemLabel ?? timelineItemLabel(block)),
+    content: escapeHtml(label),
     className: ['gantt-timeline-item', visualClassName, archiveClassName].filter(Boolean).join(' '),
     title: [
       block.displayLabel,
       block.route ?? '',
-      timelineStatusLabel(block, t, viewMode),
-      archiveClassName ? archiveStatusLabel(block.archiveStatus, t) : '',
+      statusLabel,
+      archiveLabel,
+      ruleHit?.summary ?? '',
+      ruleHit?.codes.join(', ') ?? '',
       block.timelineTitleExtra ?? '',
     ].filter(Boolean).map(escapeHtml).join(' | '),
     type: 'range',
+    displayMetadata: {
+      label,
+      statusLabel,
+      startUtc: block.startUtc,
+      endUtc: block.endUtc,
+      route: block.route,
+      archiveStatusLabel: archiveLabel || null,
+      ruleHit,
+    },
   };
 }
 
@@ -104,6 +119,20 @@ function groupLabel(block: TimelineDisplayBlock, t: (key: string) => string, vie
 
 function timelineItemLabel(block: GanttTimelineBlock) {
   return block.displayLabel;
+}
+
+function buildRuleHitDisplay(block: TimelineDisplayBlock): TimelineRuleHitDisplay | null {
+  const count = typeof block.ruleHitCount === 'number' && block.ruleHitCount > 0
+    ? block.ruleHitCount
+    : 0;
+  const summary = block.ruleHitSummary?.trim() || null;
+  const codes = (block.ruleHitCodes ?? []).filter(Boolean);
+  if (count === 0 && !summary && codes.length === 0) return null;
+  return {
+    count: count || Math.max(codes.length, 1),
+    summary,
+    codes,
+  };
 }
 
 function escapeHtml(value: string) {
