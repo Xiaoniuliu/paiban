@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import static org.hamcrest.Matchers.hasItem;
 import org.junit.jupiter.api.AfterEach;
@@ -33,7 +35,10 @@ class TaskPlanControllerIntegrationTests {
     @BeforeEach
     @AfterEach
     void cleanTestRows() {
-        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105')");
+        jdbcTemplate.update("DELETE FROM timeline_block WHERE crew_member_id IN (SELECT id FROM crew_member WHERE crew_code IN ('TESTCREW91', 'TESTCREW92', 'TESTCREW93'))");
+        jdbcTemplate.update("DELETE FROM crew_qualification WHERE crew_member_id IN (SELECT id FROM crew_member WHERE crew_code IN ('TESTCREW91', 'TESTCREW92', 'TESTCREW93'))");
+        jdbcTemplate.update("DELETE FROM crew_member WHERE crew_code IN ('TESTCREW91', 'TESTCREW92', 'TESTCREW93')");
+        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107')");
         jdbcTemplate.update("DELETE FROM task_plan_import_batch WHERE batch_no = 'TEST-BATCH-9100'");
     }
 
@@ -194,6 +199,124 @@ class TaskPlanControllerIntegrationTests {
             .andExpect(status().isConflict());
     }
 
+    @Test
+    void assignmentReadinessContractComesFromBackendOwnedTaskCrewBridge() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long batchId = createBatch(token);
+        Long blockedCrewId = createCrew(token, "TESTCREW91", "CAPTAIN", "A330");
+        createCrew(token, "TESTCREW92", "FIRST_OFFICER", "A330");
+
+        mockMvc.perform(post("/api/timeline-blocks/crew-status")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewMemberId": %d,
+                      "blockType": "REST",
+                      "startUtc": "%s",
+                      "endUtc": "%s"
+                    }
+                    """.formatted(
+                    blockedCrewId,
+                    Instant.now().minusSeconds(1800),
+                    Instant.now().plusSeconds(1800)
+                )))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/task-plan/items")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "batchId": %d,
+                      "taskCode": "TEST9106",
+                      "taskType": "GROUND",
+                      "titleZh": "地面任务",
+                      "titleEn": "Ground Task",
+                      "scheduledStartUtc": "2026-05-03T00:00:00Z",
+                      "scheduledEndUtc": "2026-05-03T02:00:00Z",
+                      "sectorCount": 1,
+                      "requiredCrewPattern": "PIC+FO"
+                    }
+                    """.formatted(batchId)))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/task-plan/items")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "batchId": %d,
+                      "taskCode": "TEST9107",
+                      "taskType": "FLIGHT",
+                      "titleZh": "航班任务",
+                      "titleEn": "Flight Task",
+                      "departureAirport": "MFM",
+                      "arrivalAirport": "SIN",
+                      "scheduledStartUtc": "2026-05-03T03:00:00Z",
+                      "scheduledEndUtc": "2026-05-03T07:00:00Z",
+                      "sectorCount": 1,
+                      "aircraftType": "A330",
+                      "aircraftNo": "B-TEST97",
+                      "requiredCrewPattern": "PIC+FO"
+                    }
+                    """.formatted(batchId)))
+            .andExpect(status().isOk());
+
+        MvcResult result = mockMvc.perform(get("/api/task-plan/assignment-readiness")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        JsonNode data = new ObjectMapper().readTree(result.getResponse().getContentAsString()).path("data");
+        JsonNode groundTask = findByCode(data.path("tasks"), "taskCode", "TEST9106");
+        JsonNode flightTask = findByCode(data.path("tasks"), "taskCode", "TEST9107");
+        JsonNode blockedCrew = findByCode(data.path("crews"), "crewCode", "TESTCREW91");
+        JsonNode availableCrew = findByCode(data.path("crews"), "crewCode", "TESTCREW92");
+
+        assertBoolean(groundTask, "requiresCrewAssignment", false);
+        assertSize(groundTask.path("assignmentRequirements"), 0);
+
+        assertBoolean(flightTask, "requiresCrewAssignment", true);
+        assertSize(flightTask.path("assignmentRequirements"), 2);
+        assertText(flightTask.path("assignmentRequirements").get(0), "assignmentRole", "PIC");
+        assertText(flightTask.path("assignmentRequirements").get(0), "requiredRoleCode", "CAPTAIN");
+        assertText(flightTask.path("assignmentRequirements").get(0), "requiredQualificationCode", "A330");
+        assertText(flightTask.path("assignmentRequirements").get(1), "assignmentRole", "FO");
+        assertText(flightTask.path("assignmentRequirements").get(1), "requiredRoleCode", "FIRST_OFFICER");
+        assertText(flightTask.path("assignmentRequirements").get(1), "requiredQualificationCode", "A330");
+
+        assertBoolean(blockedCrew, "availableForAssignmentNow", false);
+        assertText(blockedCrew, "unavailableBlockType", "REST");
+        assertBoolean(availableCrew, "availableForAssignmentNow", true);
+        if (!availableCrew.path("unavailableBlockType").isNull()) {
+            throw new AssertionError("Expected TESTCREW92 to have no active timeline unavailability block");
+        }
+    }
+
+    @Test
+    void assignmentReadinessMarksInactiveOrUnavailableCrewAsNotAssignableWithoutTimelineBlock() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        createBatch(token);
+        createCrew(token, "TESTCREW93", "CAPTAIN", "A330");
+        jdbcTemplate.update("""
+            UPDATE crew_member
+            SET status = 'INACTIVE',
+                availability_status = 'UNAVAILABLE'
+            WHERE crew_code = 'TESTCREW93'
+            """);
+
+        MvcResult result = mockMvc.perform(get("/api/task-plan/assignment-readiness")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        JsonNode data = new ObjectMapper().readTree(result.getResponse().getContentAsString()).path("data");
+        JsonNode unavailableCrew = findByCode(data.path("crews"), "crewCode", "TESTCREW93");
+
+        assertBoolean(unavailableCrew, "availableForAssignmentNow", false);
+    }
+
     private Long createBatch(String token) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/task-plan/batches")
                 .header("Authorization", "Bearer " + token)
@@ -209,6 +332,66 @@ class TaskPlanControllerIntegrationTests {
             .andExpect(status().isOk())
             .andReturn();
         return extractLong(result.getResponse().getContentAsString(), "\"id\":");
+    }
+
+    private Long createCrew(String token, String crewCode, String roleCode, String aircraftQualification) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/crew-members")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewCode": "%s",
+                      "employeeNo": "%s",
+                      "nameZh": "%s",
+                      "nameEn": "%s",
+                      "roleCode": "%s",
+                      "rankCode": "%s",
+                      "homeBase": "MFM",
+                      "aircraftQualification": "%s",
+                      "acclimatizationStatus": "ACCLIMATIZED",
+                      "bodyClockTimezone": "Asia/Macau",
+                      "normalCommuteMinutes": 20,
+                      "externalEmploymentFlag": false
+                    }
+                    """.formatted(
+                    crewCode,
+                    crewCode,
+                    crewCode,
+                    crewCode,
+                    roleCode,
+                    "CAPTAIN".equals(roleCode) ? "CPT" : "FO",
+                    aircraftQualification
+                )))
+            .andExpect(status().isOk())
+            .andReturn();
+        return extractLong(result.getResponse().getContentAsString(), "\"id\":");
+    }
+
+    private JsonNode findByCode(JsonNode array, String fieldName, String expectedValue) {
+        for (JsonNode node : array) {
+            if (expectedValue.equals(node.path(fieldName).asText())) {
+                return node;
+            }
+        }
+        throw new AssertionError("Expected to find node where " + fieldName + "=" + expectedValue);
+    }
+
+    private void assertBoolean(JsonNode node, String fieldName, boolean expectedValue) {
+        if (node.path(fieldName).asBoolean() != expectedValue) {
+            throw new AssertionError("Expected " + fieldName + "=" + expectedValue + " but was " + node.path(fieldName));
+        }
+    }
+
+    private void assertText(JsonNode node, String fieldName, String expectedValue) {
+        if (!expectedValue.equals(node.path(fieldName).asText())) {
+            throw new AssertionError("Expected " + fieldName + "=" + expectedValue + " but was " + node.path(fieldName));
+        }
+    }
+
+    private void assertSize(JsonNode array, int expectedSize) {
+        if (!array.isArray() || array.size() != expectedSize) {
+            throw new AssertionError("Expected array size " + expectedSize + " but was " + array.size());
+        }
     }
 
     private Long createTask(Long batchId, String taskCode, String status) {

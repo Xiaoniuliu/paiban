@@ -5,6 +5,15 @@ import java.util.List;
 
 public class ValidationPublishDtos {
 
+    public record ValidationIssueListResponse(
+        String rosterVersionNo,
+        String rosterVersionStatus,
+        int blockedCount,
+        int warningCount,
+        List<ValidationIssueResponse> issues
+    ) {
+    }
+
     public record ValidationPublishSummaryResponse(
         String rosterVersionNo,
         String rosterVersionStatus,

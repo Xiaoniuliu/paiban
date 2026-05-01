@@ -5,13 +5,17 @@ import {
   ExceptionsCdrPage,
   FlightOperationsPage,
   FlightTaskPage,
+  IssueHandlingPage,
   PilotPortalPage,
+  PublishExportPage,
+  PublishResultPage,
   ReportsPage,
   RosteringWorkbenchPage,
   RuleCenterPage,
   ValidationCenterPage,
 } from '../pages/Pages';
 import { CrewStatusPage } from '../pages/CrewStatusPages';
+import { DraftRosteringPage } from '../pages/DraftRosteringPage';
 import { adminRoles, crewReadRoles, operationsRoles, pilotRoles } from '../permissions';
 import type { AppRoute, ModuleKey, RoutedPageProps } from './types';
 
@@ -19,6 +23,9 @@ const dashboardPage = DashboardPage as ComponentType<RoutedPageProps>;
 const crewStatusPage = CrewStatusPage as ComponentType<RoutedPageProps>;
 const flightOperationsPage = FlightOperationsPage as ComponentType<RoutedPageProps>;
 const flightTaskPage = FlightTaskPage as ComponentType<RoutedPageProps>;
+const issueHandlingPage = IssueHandlingPage as ComponentType<RoutedPageProps>;
+const publishExportPage = PublishExportPage as ComponentType<RoutedPageProps>;
+const publishResultPage = PublishResultPage as ComponentType<RoutedPageProps>;
 const workbenchPage = RosteringWorkbenchPage as ComponentType<RoutedPageProps>;
 const validationPage = ValidationCenterPage as ComponentType<RoutedPageProps>;
 const ruleCenterPage = RuleCenterPage as ComponentType<RoutedPageProps>;
@@ -26,6 +33,7 @@ const exceptionsPage = ExceptionsCdrPage as ComponentType<RoutedPageProps>;
 const reportsPage = ReportsPage as ComponentType<RoutedPageProps>;
 const adminPage = AdminPage as ComponentType<RoutedPageProps>;
 const pilotPortalPage = PilotPortalPage as ComponentType<RoutedPageProps>;
+const draftRosteringPage = DraftRosteringPage as ComponentType<RoutedPageProps>;
 
 function route(
   moduleKey: ModuleKey,
@@ -66,6 +74,7 @@ export const rosteringWorkbenchRoutes: AppRoute[] = [
   route('rostering-workbench', '/rostering-workbench/flight-view', 'workbench-flight-view', workbenchPage),
   route('rostering-workbench', '/rostering-workbench/crew-view', 'workbench-crew-view', workbenchPage),
   route('rostering-workbench', '/rostering-workbench/unassigned-tasks', 'workbench-unassigned-tasks', workbenchPage),
+  route('rostering-workbench', '/rostering-workbench/draft-rostering', 'draft-rostering', draftRosteringPage),
   route('rostering-workbench', '/rostering-workbench/draft-versions', 'workbench-draft-versions', workbenchPage),
   route('rostering-workbench', '/rostering-workbench/run-day-adjustments', 'workbench-run-day-adjustments', workbenchPage),
   route('rostering-workbench', '/rostering-workbench/archive-entry', 'workbench-archive-entry', workbenchPage),
@@ -74,9 +83,9 @@ export const rosteringWorkbenchRoutes: AppRoute[] = [
 export const validationRoutes: AppRoute[] = [
   route('validation-center', '/validation-center/overview', 'validation-overview', validationPage),
   route('validation-center', '/validation-center/rule-hits', 'validation-rule-hits', validationPage),
-  route('validation-center', '/validation-center/violation-handling', 'validation-violation-handling', validationPage),
-  route('validation-center', '/validation-center/release-gates', 'validation-release-gates', validationPage),
-  route('validation-center', '/validation-center/export', 'validation-export', validationPage),
+  route('validation-center', '/validation-center/violation-handling', 'validation-violation-handling', issueHandlingPage),
+  route('validation-center', '/validation-center/release-gates', 'validation-release-gates', publishResultPage),
+  route('validation-center', '/validation-center/export', 'validation-export', publishExportPage),
 ];
 
 export const ruleCenterRoutes: AppRoute[] = [

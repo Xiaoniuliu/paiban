@@ -28,13 +28,16 @@ public class TaskPlanController {
 
     private final TaskPlanImportBatchRepository batchRepository;
     private final TaskPlanItemRepository itemRepository;
+    private final TaskAssignmentReadinessService taskAssignmentReadinessService;
 
     public TaskPlanController(
         TaskPlanImportBatchRepository batchRepository,
-        TaskPlanItemRepository itemRepository
+        TaskPlanItemRepository itemRepository,
+        TaskAssignmentReadinessService taskAssignmentReadinessService
     ) {
         this.batchRepository = batchRepository;
         this.itemRepository = itemRepository;
+        this.taskAssignmentReadinessService = taskAssignmentReadinessService;
     }
 
     @GetMapping("/batches")
@@ -78,6 +81,12 @@ public class TaskPlanController {
             itemRepository.saveAll(items);
         }
         return ApiResponse.ok(items);
+    }
+
+    @GetMapping("/assignment-readiness")
+    @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN')")
+    public ApiResponse<TaskAssignmentReadinessDtos.TaskAssignmentReadinessResponse> assignmentReadiness() {
+        return ApiResponse.ok(taskAssignmentReadinessService.readiness());
     }
 
     @PostMapping("/items")

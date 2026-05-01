@@ -2,6 +2,7 @@ package com.pilotroster.assignment;
 
 import com.pilotroster.assignment.AssignmentDtos.AssignmentTaskDetailResponse;
 import com.pilotroster.assignment.AssignmentDtos.ClearAssignmentDraftResponse;
+import com.pilotroster.assignment.AssignmentDtos.DraftRosteringTaskListResponse;
 import com.pilotroster.assignment.AssignmentDtos.SaveAssignmentDraftRequest;
 import com.pilotroster.assignment.AssignmentDtos.SaveAssignmentDraftResponse;
 import com.pilotroster.auth.AuthenticatedUser;
@@ -24,6 +25,14 @@ public class AssignmentController {
 
     public AssignmentController(AssignmentService assignmentService) {
         this.assignmentService = assignmentService;
+    }
+
+    @GetMapping("/draft-rostering/tasks")
+    @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN')")
+    public ApiResponse<DraftRosteringTaskListResponse> draftRosteringTasks(
+        @AuthenticationPrincipal AuthenticatedUser user
+    ) {
+        return ApiResponse.ok(assignmentService.draftRosteringTasks(user));
     }
 
     @GetMapping("/tasks/{taskId}")

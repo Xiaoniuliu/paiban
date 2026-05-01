@@ -8,10 +8,15 @@ import type {
   ClearAssignmentDraftResponse,
   CreateRunDayAdjustmentRequest,
   CreateCrewStatusBlockRequest,
-  CrewExternalWork,
   CrewMember,
+  CrewProfileWritePayload,
   CrewQualification,
+  DraftRosteringTaskList,
   FlightRoute,
+  FlightOperationsReferenceProtection,
+  PublishExportFile,
+  PublishResultView,
+  TaskAssignmentReadiness,
   GanttTimelineBlock,
   RunDayAdjustment,
   RuleCatalog,
@@ -25,6 +30,7 @@ import type {
   TimelineBlock,
   UserPreference,
   UserProfile,
+  ValidationIssueList,
   ValidationPublishSummary,
 } from '../types';
 
@@ -67,14 +73,14 @@ export class ApiClient {
     return this.request<CrewMember[]>('/api/crew-members');
   }
 
-  async createCrewMember(payload: Partial<CrewMember>) {
+  async createCrewMember(payload: CrewProfileWritePayload) {
     return this.request<CrewMember>('/api/crew-members', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   }
 
-  async updateCrewMember(crewId: number, payload: Partial<CrewMember>) {
+  async updateCrewMember(crewId: number, payload: CrewProfileWritePayload) {
     return this.request<CrewMember>(`/api/crew-members/${crewId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
@@ -83,6 +89,13 @@ export class ApiClient {
 
   async disableCrewMember(crewId: number) {
     return this.request<CrewMember>(`/api/crew-members/${crewId}`, { method: 'DELETE' });
+  }
+
+  async reactivateCrewMember(crewId: number) {
+    return this.request<CrewMember>(`/api/crew-members/${crewId}/reactivate`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   }
 
   async crewQualifications() {
@@ -105,28 +118,6 @@ export class ApiClient {
 
   async disableCrewQualification(crewId: number, qualificationId: number) {
     return this.request<CrewQualification>(`/api/crew-members/${crewId}/qualifications/${qualificationId}`, { method: 'DELETE' });
-  }
-
-  async crewExternalWork() {
-    return this.request<CrewExternalWork[]>('/api/crew-members/external-work');
-  }
-
-  async createCrewExternalWork(crewId: number, payload: Partial<CrewExternalWork>) {
-    return this.request<CrewExternalWork>(`/api/crew-members/${crewId}/external-work`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async updateCrewExternalWork(crewId: number, workId: number, payload: Partial<CrewExternalWork>) {
-    return this.request<CrewExternalWork>(`/api/crew-members/${crewId}/external-work/${workId}`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async disableCrewExternalWork(crewId: number, workId: number) {
-    return this.request<CrewExternalWork>(`/api/crew-members/${crewId}/external-work/${workId}`, { method: 'DELETE' });
   }
 
   async airports() {
@@ -159,6 +150,10 @@ export class ApiClient {
     return this.request<TaskPlanItem[]>('/api/task-plan/items');
   }
 
+  async taskAssignmentReadiness() {
+    return this.request<TaskAssignmentReadiness>('/api/task-plan/assignment-readiness');
+  }
+
   async createTaskPlanItem(payload: Partial<TaskPlanItem>) {
     return this.request<TaskPlanItem>('/api/task-plan/items', {
       method: 'POST',
@@ -179,6 +174,10 @@ export class ApiClient {
 
   async flightRoutes() {
     return this.request<FlightRoute[]>('/api/flight-operations/routes');
+  }
+
+  async flightOperationsReferenceProtection() {
+    return this.request<FlightOperationsReferenceProtection>('/api/flight-operations/reference-protection');
   }
 
   async createFlightRoute(payload: Partial<FlightRoute>) {
@@ -258,6 +257,10 @@ export class ApiClient {
     return this.request<AssignmentTaskDetail>(`/api/assignments/tasks/${taskId}`);
   }
 
+  async draftRosteringTasks() {
+    return this.request<DraftRosteringTaskList>('/api/assignments/draft-rostering/tasks');
+  }
+
   async saveAssignmentDraft(taskId: number, payload: SaveAssignmentDraftRequest) {
     return this.request<SaveAssignmentDraftResponse>(`/api/assignments/tasks/${taskId}/draft`, {
       method: 'PUT',
@@ -275,6 +278,10 @@ export class ApiClient {
     return this.request<ValidationPublishSummary>('/api/rostering-workbench/validation-publish');
   }
 
+  async validationIssues() {
+    return this.request<ValidationIssueList>('/api/rostering-workbench/validation-publish/issues');
+  }
+
   async runValidationPublishCheck() {
     return this.request<ValidationPublishSummary>('/api/rostering-workbench/validation-publish/validate', {
       method: 'POST',
@@ -287,6 +294,28 @@ export class ApiClient {
       method: 'POST',
       body: JSON.stringify({ managerConfirmed }),
     });
+  }
+
+  async publishResults() {
+    return this.request<PublishResultView>('/api/publish/results');
+  }
+
+  async validatePublishResults() {
+    return this.request<PublishResultView>('/api/publish/results/validate', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  async publishResultRoster(managerConfirmed: boolean) {
+    return this.request<PublishResultView>('/api/publish/results/publish', {
+      method: 'POST',
+      body: JSON.stringify({ managerConfirmed }),
+    });
+  }
+
+  async publishResultExport(view: 'flight' | 'crew') {
+    return this.request<PublishExportFile>(`/api/publish/results/export?view=${view}`);
   }
 
   async runDayAdjustments() {

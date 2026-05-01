@@ -5,6 +5,7 @@ import com.pilotroster.auth.UserRole;
 import com.pilotroster.common.ApiResponse;
 import java.math.BigDecimal;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -24,16 +25,12 @@ public class CrewMemberController {
 
     private final CrewMemberRepository crewMemberRepository;
     private final CrewQualificationRepository crewQualificationRepository;
-    private final CrewExternalWorkRepository crewExternalWorkRepository;
-
     public CrewMemberController(
         CrewMemberRepository crewMemberRepository,
-        CrewQualificationRepository crewQualificationRepository,
-        CrewExternalWorkRepository crewExternalWorkRepository
+        CrewQualificationRepository crewQualificationRepository
     ) {
         this.crewMemberRepository = crewMemberRepository;
         this.crewQualificationRepository = crewQualificationRepository;
-        this.crewExternalWorkRepository = crewExternalWorkRepository;
     }
 
     @GetMapping
@@ -51,31 +48,28 @@ public class CrewMemberController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
-    public ApiResponse<CrewMember> create(@RequestBody CrewMember input) {
-        normalizeCrew(input);
-        return ApiResponse.ok(crewMemberRepository.save(input));
+    public ApiResponse<CrewMember> create(@RequestBody CrewProfileWriteRequest input) {
+        CrewMember crew = new CrewMember();
+        applyCrewProfileWrite(crew, input);
+        normalizeCrew(crew);
+        try {
+            return ApiResponse.ok(crewMemberRepository.save(crew));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Crew profile violates uniqueness or master-data constraints", ex);
+        }
     }
 
     @PutMapping("/{crewId}")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
-    public ApiResponse<CrewMember> update(@PathVariable Long crewId, @RequestBody CrewMember input) {
+    public ApiResponse<CrewMember> update(@PathVariable Long crewId, @RequestBody CrewProfileWriteRequest input) {
         CrewMember crew = crew(crewId);
-        crew.setCrewCode(input.getCrewCode());
-        crew.setEmployeeNo(input.getEmployeeNo());
-        crew.setNameZh(input.getNameZh());
-        crew.setNameEn(input.getNameEn());
-        crew.setRoleCode(input.getRoleCode());
-        crew.setRankCode(input.getRankCode());
-        crew.setHomeBase(input.getHomeBase());
-        crew.setAircraftQualification(input.getAircraftQualification());
-        crew.setAcclimatizationStatus(input.getAcclimatizationStatus());
-        crew.setBodyClockTimezone(input.getBodyClockTimezone());
-        crew.setNormalCommuteMinutes(input.getNormalCommuteMinutes());
-        crew.setExternalEmploymentFlag(input.getExternalEmploymentFlag());
-        crew.setAvailabilityStatus(input.getAvailabilityStatus());
-        crew.setStatus(input.getStatus());
+        applyCrewProfileWrite(crew, input);
         normalizeCrew(crew);
-        return ApiResponse.ok(crewMemberRepository.save(crew));
+        try {
+            return ApiResponse.ok(crewMemberRepository.save(crew));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Crew profile update violates uniqueness or master-data constraints", ex);
+        }
     }
 
     @DeleteMapping("/{crewId}")
@@ -84,6 +78,15 @@ public class CrewMemberController {
         CrewMember crew = crew(crewId);
         crew.setStatus("INACTIVE");
         crew.setAvailabilityStatus("UNAVAILABLE");
+        return ApiResponse.ok(crewMemberRepository.save(crew));
+    }
+
+    @PostMapping("/{crewId}/reactivate")
+    @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
+    public ApiResponse<CrewMember> reactivate(@PathVariable Long crewId) {
+        CrewMember crew = crew(crewId);
+        crew.setStatus("ACTIVE");
+        crew.setAvailabilityStatus("AVAILABLE");
         return ApiResponse.ok(crewMemberRepository.save(crew));
     }
 
@@ -106,7 +109,11 @@ public class CrewMemberController {
         crew(crewId);
         input.setCrewMemberId(crewId);
         input.setStatus(defaultString(input.getStatus(), "ACTIVE"));
-        return ApiResponse.ok(crewQualificationRepository.save(input));
+        try {
+            return ApiResponse.ok(crewQualificationRepository.save(input));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Crew qualification violates uniqueness or master-data constraints", ex);
+        }
     }
 
     @PutMapping("/{crewId}/qualifications/{qualificationId}")
@@ -124,7 +131,11 @@ public class CrewMemberController {
         qualification.setEffectiveFromUtc(input.getEffectiveFromUtc());
         qualification.setEffectiveToUtc(input.getEffectiveToUtc());
         qualification.setStatus(defaultString(input.getStatus(), "ACTIVE"));
-        return ApiResponse.ok(crewQualificationRepository.save(qualification));
+        try {
+            return ApiResponse.ok(crewQualificationRepository.save(qualification));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Crew qualification update violates uniqueness or master-data constraints", ex);
+        }
     }
 
     @DeleteMapping("/{crewId}/qualifications/{qualificationId}")
@@ -140,23 +151,20 @@ public class CrewMemberController {
     @GetMapping("/external-work")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN')")
     public ApiResponse<List<CrewExternalWork>> allExternalWork() {
-        return ApiResponse.ok(crewExternalWorkRepository.findAllByOrderByStartUtcDesc());
+        throw retiredExternalWorkContract();
     }
 
     @GetMapping("/{crewId}/external-work")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT')")
     public ApiResponse<List<CrewExternalWork>> externalWork(@PathVariable Long crewId, @AuthenticationPrincipal AuthenticatedUser user) {
         assertCrewAccess(user, crewId);
-        return ApiResponse.ok(crewExternalWorkRepository.findAllByCrewMemberIdOrderByStartUtcDesc(crewId));
+        throw retiredExternalWorkContract();
     }
 
     @PostMapping("/{crewId}/external-work")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
     public ApiResponse<CrewExternalWork> createExternalWork(@PathVariable Long crewId, @RequestBody CrewExternalWork input) {
-        crew(crewId);
-        input.setCrewMemberId(crewId);
-        input.setStatus(defaultString(input.getStatus(), "ACTIVE"));
-        return ApiResponse.ok(crewExternalWorkRepository.save(input));
+        throw retiredExternalWorkContract();
     }
 
     @PutMapping("/{crewId}/external-work/{workId}")
@@ -166,32 +174,20 @@ public class CrewMemberController {
         @PathVariable Long workId,
         @RequestBody CrewExternalWork input
     ) {
-        crew(crewId);
-        CrewExternalWork work = crewExternalWorkRepository.findByIdAndCrewMemberId(workId, crewId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "External work not found"));
-        work.setExternalType(input.getExternalType());
-        work.setStartUtc(input.getStartUtc());
-        work.setEndUtc(input.getEndUtc());
-        work.setDescription(defaultString(input.getDescription(), ""));
-        work.setStatus(defaultString(input.getStatus(), "ACTIVE"));
-        return ApiResponse.ok(crewExternalWorkRepository.save(work));
+        throw retiredExternalWorkContract();
     }
 
     @DeleteMapping("/{crewId}/external-work/{workId}")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
     public ApiResponse<CrewExternalWork> disableExternalWork(@PathVariable Long crewId, @PathVariable Long workId) {
-        crew(crewId);
-        CrewExternalWork work = crewExternalWorkRepository.findByIdAndCrewMemberId(workId, crewId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "External work not found"));
-        work.setStatus("INACTIVE");
-        return ApiResponse.ok(crewExternalWorkRepository.save(work));
+        throw retiredExternalWorkContract();
     }
 
     @GetMapping("/{crewId}/duty-calendar")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT')")
     public ApiResponse<List<CrewExternalWork>> dutyCalendar(@PathVariable Long crewId, @AuthenticationPrincipal AuthenticatedUser user) {
         assertCrewAccess(user, crewId);
-        return ApiResponse.ok(crewExternalWorkRepository.findAllByCrewMemberIdOrderByStartUtcDesc(crewId));
+        throw retiredExternalWorkContract();
     }
 
     private void assertCrewAccess(AuthenticatedUser user, Long crewId) {
@@ -203,6 +199,21 @@ public class CrewMemberController {
     private CrewMember crew(Long crewId) {
         return crewMemberRepository.findById(crewId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Crew member not found"));
+    }
+
+    private void applyCrewProfileWrite(CrewMember crew, CrewProfileWriteRequest input) {
+        crew.setCrewCode(input.crewCode());
+        crew.setEmployeeNo(input.employeeNo());
+        crew.setNameZh(input.nameZh());
+        crew.setNameEn(input.nameEn());
+        crew.setRoleCode(input.roleCode());
+        crew.setRankCode(input.rankCode());
+        crew.setHomeBase(input.homeBase());
+        crew.setAircraftQualification(input.aircraftQualification());
+        crew.setAcclimatizationStatus(input.acclimatizationStatus());
+        crew.setBodyClockTimezone(input.bodyClockTimezone());
+        crew.setNormalCommuteMinutes(input.normalCommuteMinutes());
+        crew.setExternalEmploymentFlag(input.externalEmploymentFlag());
     }
 
     private void normalizeCrew(CrewMember crew) {
@@ -224,7 +235,27 @@ public class CrewMemberController {
         crew.setLatestActualFdpSource(defaultString(crew.getLatestActualFdpSource(), "ACTUAL_ONLY"));
     }
 
+    private ResponseStatusException retiredExternalWorkContract() {
+        return new ResponseStatusException(HttpStatus.GONE, "Crew external work contract retired; use crew status timeline instead");
+    }
+
     private String defaultString(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    record CrewProfileWriteRequest(
+        String crewCode,
+        String employeeNo,
+        String nameZh,
+        String nameEn,
+        String roleCode,
+        String rankCode,
+        String homeBase,
+        String aircraftQualification,
+        String acclimatizationStatus,
+        String bodyClockTimezone,
+        Integer normalCommuteMinutes,
+        Boolean externalEmploymentFlag
+    ) {
     }
 }

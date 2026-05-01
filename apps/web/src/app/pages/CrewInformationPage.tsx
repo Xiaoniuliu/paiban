@@ -8,8 +8,10 @@ import {
   toDisplayDateTimeLocal,
   utcEpochMs,
 } from '../lib/time';
+import { apiErrorMessage } from '../lib/apiErrors';
 import type {
   CrewMember,
+  CrewProfileWritePayload,
   CrewQualification,
   DisplayTimezone,
   Language,
@@ -34,13 +36,15 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
   const [qualifications, setQualifications] = useState<CrewQualification[]>([]);
   const [timelineBlocks, setTimelineBlocks] = useState<TimelineBlock[]>([]);
   const [activeTab, setActiveTab] = useState('profile');
-  const [editingCrew, setEditingCrew] = useState<Partial<CrewMember> | null>(null);
+  const [editingCrew, setEditingCrew] = useState<CrewProfileForm | null>(null);
   const [editingQualification, setEditingQualification] = useState<Partial<CrewQualification> | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [loadWarning, setLoadWarning] = useState('');
   const canEdit = user.role === 'DISPATCHER' || user.role === 'ADMIN';
+  const crewProfileErrorFallback = `${t('crewProfileTab')}: ${t('saveFailed')}`;
+  const crewQualificationErrorFallback = `${t('crewQualificationTab')}: ${t('saveFailed')}`;
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -73,13 +77,14 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
     event.preventDefault();
     if (!editingCrew) return;
     setSaving(true);
+    const payload = crewProfileFormToPayload(editingCrew);
     const action = editingCrew.id
-      ? api.updateCrewMember(editingCrew.id, editingCrew)
-      : api.createCrewMember(editingCrew);
+      ? api.updateCrewMember(editingCrew.id, payload)
+      : api.createCrewMember(payload);
     action.then(() => {
       setEditingCrew(null);
       refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+    }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewProfileErrorFallback))).finally(() => setSaving(false));
   };
 
   const saveQualification = (event: FormEvent) => {
@@ -97,15 +102,19 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
     action.then(() => {
       setEditingQualification(null);
       refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+    }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewQualificationErrorFallback))).finally(() => setSaving(false));
   };
 
   const disableCrew = (crewId: number) => {
-    api.disableCrewMember(crewId).then(refresh).catch(() => setError(t('saveFailed')));
+    api.disableCrewMember(crewId).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewProfileErrorFallback)));
+  };
+
+  const reactivateCrew = (crewId: number) => {
+    api.reactivateCrewMember(crewId).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewProfileErrorFallback)));
   };
 
   const disableQualification = (qualification: CrewQualification) => {
-    api.disableCrewQualification(qualification.crewMemberId, qualification.id).then(refresh).catch(() => setError(t('saveFailed')));
+    api.disableCrewQualification(qualification.crewMemberId, qualification.id).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewQualificationErrorFallback)));
   };
 
   const crewById = useMemo(() => new Map(crewRows.map((crew) => [crew.id, crew])), [crewRows]);
@@ -133,8 +142,9 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
               canEdit={canEdit}
               t={t}
               onAddCrew={() => setEditingCrew(defaultCrewForm())}
-              onEditCrew={setEditingCrew}
+              onEditCrew={(crew) => setEditingCrew(crewProfileFormFromCrew(crew))}
               onDisableCrew={disableCrew}
+              onReactivateCrew={reactivateCrew}
             />
           )}
         </TabsContent>
@@ -198,7 +208,9 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
   );
 }
 
-function defaultCrewForm(): Partial<CrewMember> {
+type CrewProfileForm = CrewProfileWritePayload & { id?: number };
+
+function defaultCrewForm(): CrewProfileForm {
   return {
     crewCode: '',
     employeeNo: '',
@@ -212,8 +224,41 @@ function defaultCrewForm(): Partial<CrewMember> {
     bodyClockTimezone: 'Asia/Macau',
     normalCommuteMinutes: 0,
     externalEmploymentFlag: false,
-    availabilityStatus: 'AVAILABLE',
-    status: 'ACTIVE',
+  };
+}
+
+function crewProfileFormFromCrew(crew: CrewMember): CrewProfileForm {
+  return {
+    id: crew.id,
+    crewCode: crew.crewCode,
+    employeeNo: crew.employeeNo,
+    nameZh: crew.nameZh,
+    nameEn: crew.nameEn,
+    roleCode: crew.roleCode,
+    rankCode: crew.rankCode,
+    homeBase: crew.homeBase,
+    aircraftQualification: crew.aircraftQualification,
+    acclimatizationStatus: crew.acclimatizationStatus,
+    bodyClockTimezone: crew.bodyClockTimezone,
+    normalCommuteMinutes: crew.normalCommuteMinutes,
+    externalEmploymentFlag: crew.externalEmploymentFlag,
+  };
+}
+
+function crewProfileFormToPayload(form: CrewProfileForm): CrewProfileWritePayload {
+  return {
+    crewCode: form.crewCode,
+    employeeNo: form.employeeNo,
+    nameZh: form.nameZh,
+    nameEn: form.nameEn,
+    roleCode: form.roleCode,
+    rankCode: form.rankCode,
+    homeBase: form.homeBase,
+    aircraftQualification: form.aircraftQualification,
+    acclimatizationStatus: form.acclimatizationStatus,
+    bodyClockTimezone: form.bodyClockTimezone,
+    normalCommuteMinutes: form.normalCommuteMinutes,
+    externalEmploymentFlag: form.externalEmploymentFlag,
   };
 }
 
@@ -248,15 +293,15 @@ function FormField({ label, children }: { label: string; children: ReactNode }) 
 
 function CrewEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }: {
   open: boolean;
-  value: Partial<CrewMember> | null;
+  value: CrewProfileForm | null;
   saving: boolean;
   t: (key: string) => string;
-  onChange: (value: Partial<CrewMember> | null) => void;
+  onChange: (value: CrewProfileForm | null) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
   if (!value) return null;
-  const update = (key: keyof CrewMember, nextValue: string | number | boolean) => onChange({ ...value, [key]: nextValue });
+  const update = (key: keyof CrewProfileWritePayload, nextValue: string | number | boolean) => onChange({ ...value, [key]: nextValue });
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="sm:max-w-3xl">
@@ -268,7 +313,6 @@ function CrewEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }:
           <FormField label={t('nameZh')}><Input required value={value.nameZh ?? ''} onChange={(event) => update('nameZh', event.target.value)} /></FormField>
           <FormField label={t('nameEn')}><Input required value={value.nameEn ?? ''} onChange={(event) => update('nameEn', event.target.value)} /></FormField>
           <FormField label={t('base')}><Input value={value.homeBase ?? ''} onChange={(event) => update('homeBase', event.target.value)} /></FormField>
-          <FormField label={t('status')}><Input value={value.status ?? ''} onChange={(event) => update('status', event.target.value)} /></FormField>
           <div className="md:col-span-2 text-sm font-medium">{t('crewProfileOperationalSection')}</div>
           <FormField label={t('role')}><Input value={value.roleCode ?? ''} onChange={(event) => update('roleCode', event.target.value)} /></FormField>
           <FormField label={t('rankCode')}><Input value={value.rankCode ?? ''} onChange={(event) => update('rankCode', event.target.value)} /></FormField>
@@ -276,7 +320,6 @@ function CrewEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }:
           <FormField label={t('acclimatizationStatus')}><Input value={value.acclimatizationStatus ?? ''} onChange={(event) => update('acclimatizationStatus', event.target.value)} /></FormField>
           <FormField label={t('bodyClockTimezone')}><Input value={value.bodyClockTimezone ?? ''} onChange={(event) => update('bodyClockTimezone', event.target.value)} /></FormField>
           <FormField label={t('normalCommuteMinutes')}><Input type="number" value={value.normalCommuteMinutes ?? 0} onChange={(event) => update('normalCommuteMinutes', Number(event.target.value))} /></FormField>
-          <FormField label={t('availabilityStatus')}><Input value={value.availabilityStatus ?? ''} onChange={(event) => update('availabilityStatus', event.target.value)} /></FormField>
           <label className="flex items-center gap-2 text-sm"><Switch checked={Boolean(value.externalEmploymentFlag)} onCheckedChange={(checked) => update('externalEmploymentFlag', checked)} />{t('externalEmploymentFlag')}</label>
           <DialogFooter className="md:col-span-2"><Button type="button" variant="outline" onClick={onClose}>{t('cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('saving') : t('save')}</Button></DialogFooter>
         </form>

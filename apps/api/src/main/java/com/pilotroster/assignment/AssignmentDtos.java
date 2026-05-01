@@ -23,6 +23,25 @@ public final class AssignmentDtos {
     ) {
     }
 
+    public record DraftRosteringTaskSummaryResponse(
+        Long taskId,
+        String taskCode,
+        String departureAirport,
+        String arrivalAirport,
+        Instant scheduledStartUtc,
+        Instant scheduledEndUtc,
+        Integer sectorCount,
+        String taskStatus,
+        String requiredCrewPattern,
+        boolean canOpenAssignment
+    ) {
+    }
+
+    public record DraftRosteringTaskListResponse(
+        List<DraftRosteringTaskSummaryResponse> tasks
+    ) {
+    }
+
     public record AssignmentCrewCandidateResponse(
         Long id,
         String crewCode,

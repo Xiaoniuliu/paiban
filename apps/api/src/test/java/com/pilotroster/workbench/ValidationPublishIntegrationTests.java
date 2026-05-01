@@ -2,6 +2,7 @@ package com.pilotroster.workbench;
 
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -60,7 +61,7 @@ class ValidationPublishIntegrationTests {
                 .content("{}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.validatedAtUtc", notNullValue()))
-            .andExpect(jsonPath("$.data.issues[*].taskCode").value(hasItem("NX8810")))
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(hasItem("CREW_ASSIGNMENT_REQUIRED")))
             .andExpect(jsonPath("$.data.issues[*].severity").value(hasItem("BLOCK")));
 
         mockMvc.perform(post("/api/rostering-workbench/validation-publish/publish")
@@ -124,6 +125,76 @@ class ValidationPublishIntegrationTests {
             .andExpect(jsonPath("$.data.issues[*].ruleId").value(hasItem("CREW_STATUS_CONFLICT")))
             .andExpect(jsonPath("$.data.issues[*].hitId").isNotEmpty())
             .andExpect(jsonPath("$.data.issues[*].targetType").value(hasItem("TIMELINE_BLOCK")));
+    }
+
+    @Test
+    void validationIssueListEndpointReflectsCurrentIssuesAndClearsWhenFactsChange() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long rosterVersionId = latestRosterVersionId();
+        Long crewId = jdbcTemplate.queryForObject(
+            """
+            SELECT crew_member_id
+            FROM timeline_block
+            WHERE crew_member_id IS NOT NULL
+              AND block_type = 'FLIGHT'
+              AND status <> 'CANCELLED'
+            ORDER BY id
+            LIMIT 1
+            """,
+            Long.class
+        );
+        Long taskId = jdbcTemplate.queryForObject(
+            """
+            SELECT task_plan_item_id
+            FROM timeline_block
+            WHERE crew_member_id = ?
+              AND task_plan_item_id IS NOT NULL
+              AND block_type = 'FLIGHT'
+            ORDER BY id
+            LIMIT 1
+            """,
+            Long.class,
+            crewId
+        );
+
+        jdbcTemplate.update(
+            """
+            INSERT INTO timeline_block (
+              roster_version_id, crew_member_id, task_plan_item_id, block_type,
+              start_utc, end_utc, display_label, status, assignment_role, display_order
+            )
+            SELECT ?, ?, NULL, 'REST', scheduled_start_utc, scheduled_end_utc,
+                   'TEST REST CONFLICT', 'PLANNED', 'EXTRA', 901
+            FROM task_plan_item
+            WHERE id = ?
+            """,
+            rosterVersionId,
+            crewId,
+            taskId
+        );
+
+        mockMvc.perform(get("/api/rostering-workbench/validation-publish/issues").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.rosterVersionNo", notNullValue()))
+            .andExpect(jsonPath("$.data.blockedCount").value(greaterThanOrEqualTo(1)))
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(hasItem("CREW_STATUS_CONFLICT")))
+            .andExpect(jsonPath("$.data.issues[*].targetType").value(hasItem("TIMELINE_BLOCK")));
+
+        jdbcTemplate.update(
+            """
+            DELETE FROM violation_hit
+            WHERE timeline_block_id IN (
+              SELECT id
+              FROM timeline_block
+              WHERE display_label = 'TEST REST CONFLICT'
+            )
+            """
+        );
+        jdbcTemplate.update("DELETE FROM timeline_block WHERE display_label = 'TEST REST CONFLICT'");
+
+        mockMvc.perform(get("/api/rostering-workbench/validation-publish/issues").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(not(hasItem("CREW_STATUS_CONFLICT"))));
     }
 
     private Long latestRosterVersionId() {

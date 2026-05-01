@@ -31,9 +31,34 @@ class AssignmentIntegrationTests {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @BeforeEach
     @AfterEach
     void resetAssignmentSeed() {
+        jdbcTemplate.update(
+            """
+            DELETE caf
+            FROM crew_archive_form caf
+            JOIN task_plan_item tpi ON tpi.id = caf.flight_id
+            WHERE tpi.task_code = 'TESTDRT01'
+            """
+        );
+        jdbcTemplate.update(
+            """
+            DELETE fac
+            FROM flight_archive_case fac
+            JOIN task_plan_item tpi ON tpi.id = fac.flight_id
+            WHERE tpi.task_code = 'TESTDRT01'
+            """
+        );
+        jdbcTemplate.update(
+            """
+            DELETE tb
+            FROM timeline_block tb
+            JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id
+            WHERE tpi.task_code = 'TESTDRT01'
+            """
+        );
+        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code = 'TESTDRT01'");
+        jdbcTemplate.update("DELETE FROM task_plan_import_batch WHERE batch_no = 'TEST-DRAFT-QUEUE-01'");
         jdbcTemplate.update(
             """
             DELETE caf
@@ -58,7 +83,64 @@ class AssignmentIntegrationTests {
             WHERE tpi.task_code = 'NX8810'
             """
         );
+        jdbcTemplate.update(
+            """
+            DELETE tpi
+            FROM task_plan_item tpi
+            JOIN task_plan_import_batch tpb ON tpb.id = tpi.batch_id
+            WHERE tpi.task_code = 'NX8810'
+              AND tpb.batch_no = 'TEST-ASSIGNMENT-SEED-01'
+            """
+        );
         jdbcTemplate.update("UPDATE task_plan_item SET status = 'UNASSIGNED' WHERE task_code = 'NX8810'");
+        jdbcTemplate.update("DELETE FROM task_plan_import_batch WHERE batch_no = 'TEST-ASSIGNMENT-SEED-01'");
+    }
+
+    @BeforeEach
+    void ensureAssignmentTaskSeed() throws Exception {
+        if (findTaskId("NX8810") != null) {
+            return;
+        }
+
+        jdbcTemplate.update("DELETE FROM task_plan_import_batch WHERE batch_no = 'TEST-ASSIGNMENT-SEED-01'");
+
+        String token = loginToken("dispatcher01", "Admin123!");
+        MvcResult batchResult = mockMvc.perform(post("/api/task-plan/batches")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "batchNo": "TEST-ASSIGNMENT-SEED-01",
+                      "sourceName": "TEST-ASSIGNMENT-SEED",
+                      "status": "IMPORTED",
+                      "importedAtUtc": "2026-04-25T00:00:00Z"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long batchId = extractLong(batchResult.getResponse().getContentAsString(), "\"id\":");
+
+        mockMvc.perform(post("/api/task-plan/items")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "batchId": %d,
+                      "taskCode": "NX8810",
+                      "taskType": "FLIGHT",
+                      "titleZh": "排班测试航班",
+                      "titleEn": "Assignment Test Flight",
+                      "departureAirport": "MFM",
+                      "arrivalAirport": "TPE",
+                      "scheduledStartUtc": "2026-04-27T13:30:00Z",
+                      "scheduledEndUtc": "2026-04-27T17:30:00Z",
+                      "sectorCount": 1,
+                      "aircraftType": "A330",
+                      "aircraftNo": "B-LNM",
+                      "requiredCrewPattern": "PIC+FO"
+                    }
+                    """.formatted(batchId)))
+            .andExpect(status().isOk());
     }
 
     @Test
@@ -136,6 +218,37 @@ class AssignmentIntegrationTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX8810 MFM-TPE')].taskStatus").value(hasItem("UNASSIGNED")))
             .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX8810 MFM-TPE')].crewId").value(hasItem((Object) null)));
+    }
+
+    @Test
+    void draftRosteringQueueListsShellTasksAndReflectsDraftStatus() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long taskId = createDraftQueueTask(token);
+        Long picCrewId = crewId("CPT001");
+        Long foCrewId = crewId("FO001");
+
+        mockMvc.perform(get("/api/assignments/draft-rostering/tasks").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].taskCode".formatted(taskId)).value(hasItem("TESTDRT01")))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].taskStatus".formatted(taskId)).value(hasItem("UNASSIGNED")))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].departureAirport".formatted(taskId)).value(hasItem("MFM")))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].arrivalAirport".formatted(taskId)).value(hasItem("TPE")))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canOpenAssignment".formatted(taskId)).value(hasItem(true)));
+
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "picCrewId": %d,
+                      "foCrewId": %d
+                    }
+                    """.formatted(picCrewId, foCrewId)))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/assignments/draft-rostering/tasks").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].taskStatus".formatted(taskId)).value(hasItem("ASSIGNED_DRAFT")));
     }
 
     @Test
@@ -296,6 +409,55 @@ class AssignmentIntegrationTests {
         return jdbcTemplate.queryForObject("SELECT id FROM task_plan_item WHERE task_code = ?", Long.class, taskCode);
     }
 
+    private Long findTaskId(String taskCode) {
+        return jdbcTemplate.query(
+            "SELECT id FROM task_plan_item WHERE task_code = ?",
+            rs -> rs.next() ? rs.getLong(1) : null,
+            taskCode
+        );
+    }
+
+    private Long createDraftQueueTask(String token) throws Exception {
+        MvcResult batchResult = mockMvc.perform(post("/api/task-plan/batches")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "batchNo": "TEST-DRAFT-QUEUE-01",
+                      "sourceName": "TEST-DRAFT-QUEUE",
+                      "status": "IMPORTED",
+                      "importedAtUtc": "2026-05-01T00:00:00Z"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long batchId = extractLong(batchResult.getResponse().getContentAsString(), "\"id\":");
+
+        MvcResult taskResult = mockMvc.perform(post("/api/task-plan/items")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "batchId": %d,
+                      "taskCode": "TESTDRT01",
+                      "taskType": "FLIGHT",
+                      "titleZh": "草稿排班测试航班",
+                      "titleEn": "Draft Rostering Test Flight",
+                      "departureAirport": "MFM",
+                      "arrivalAirport": "TPE",
+                      "scheduledStartUtc": "2026-05-03T01:00:00Z",
+                      "scheduledEndUtc": "2026-05-03T05:00:00Z",
+                      "sectorCount": 1,
+                      "aircraftType": "A330",
+                      "aircraftNo": "B-LNM",
+                      "requiredCrewPattern": "PIC+FO"
+                    }
+                    """.formatted(batchId)))
+            .andExpect(status().isOk())
+            .andReturn();
+        return extractLong(taskResult.getResponse().getContentAsString(), "\"id\":");
+    }
+
     private Long crewId(String crewCode) {
         return jdbcTemplate.queryForObject("SELECT id FROM crew_member WHERE crew_code = ?", Long.class, crewCode);
     }
@@ -318,7 +480,13 @@ class AssignmentIntegrationTests {
               'Unarchived',
               DATE_ADD(tpi.scheduled_end_utc, INTERVAL 24 HOUR),
               0,
-              0,
+              (
+                SELECT COUNT(DISTINCT tb.crew_member_id)
+                FROM timeline_block tb
+                WHERE tb.task_plan_item_id = tpi.id
+                  AND tb.roster_version_id = rv.id
+                  AND tb.crew_member_id IS NOT NULL
+              ),
               0
             FROM task_plan_item tpi
             JOIN roster_version rv ON rv.status = 'DRAFT'
@@ -328,11 +496,40 @@ class AssignmentIntegrationTests {
             """,
             taskId
         );
-        return jdbcTemplate.queryForObject(
+        Long archiveCaseId = jdbcTemplate.queryForObject(
             "SELECT id FROM flight_archive_case WHERE flight_id = ?",
             Long.class,
             taskId
         );
+        jdbcTemplate.update(
+            """
+            INSERT INTO crew_archive_form (
+              archive_case_id,
+              flight_id,
+              crew_id,
+              form_status
+            )
+            SELECT DISTINCT
+              fac.id,
+              fac.flight_id,
+              tb.crew_member_id,
+              'NotStarted'
+            FROM flight_archive_case fac
+            JOIN timeline_block tb
+              ON tb.task_plan_item_id = fac.flight_id
+             AND tb.roster_version_id = fac.roster_version_id
+            WHERE fac.id = ?
+              AND tb.crew_member_id IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM crew_archive_form existing
+                WHERE existing.archive_case_id = fac.id
+                  AND existing.crew_id = tb.crew_member_id
+              )
+            """,
+            archiveCaseId
+        );
+        return archiveCaseId;
     }
 
     private String loginToken(String username, String password) throws Exception {
@@ -346,5 +543,14 @@ class AssignmentIntegrationTests {
         int tokenStart = body.indexOf("\"token\":\"") + 9;
         int tokenEnd = body.indexOf('"', tokenStart);
         return body.substring(tokenStart, tokenEnd);
+    }
+
+    private Long extractLong(String body, String marker) {
+        int start = body.indexOf(marker) + marker.length();
+        int end = start;
+        while (end < body.length() && Character.isDigit(body.charAt(end))) {
+            end++;
+        }
+        return Long.valueOf(body.substring(start, end));
     }
 }

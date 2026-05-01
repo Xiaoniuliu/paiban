@@ -10,6 +10,7 @@ import com.pilotroster.task.TaskPlanItem;
 import com.pilotroster.task.TaskPlanItemRepository;
 import com.pilotroster.timeline.TimelineBlock;
 import com.pilotroster.timeline.TimelineBlockRepository;
+import com.pilotroster.workbench.ValidationPublishDtos.ValidationIssueListResponse;
 import com.pilotroster.workbench.ValidationPublishDtos.PublishRosterRequest;
 import com.pilotroster.workbench.ValidationPublishDtos.ValidationIssueResponse;
 import com.pilotroster.workbench.ValidationPublishDtos.ValidationPublishSummaryResponse;
@@ -77,6 +78,11 @@ public class ValidationPublishService {
     }
 
     @Transactional
+    public ValidationIssueListResponse issues() {
+        return buildIssueList();
+    }
+
+    @Transactional
     public ValidationPublishSummaryResponse validateDraft() {
         return buildSummary(Instant.now(), null);
     }
@@ -129,12 +135,21 @@ public class ValidationPublishService {
         return buildSummary(validatedAtUtc, Instant.now());
     }
 
+    private ValidationIssueListResponse buildIssueList() {
+        IssueListSnapshot snapshot = evaluateIssues();
+        return new ValidationIssueListResponse(
+            snapshot.rosterVersionNo(),
+            snapshot.rosterVersionStatus(),
+            snapshot.blockedCount(),
+            snapshot.warningCount(),
+            snapshot.issues()
+        );
+    }
+
     private ValidationPublishSummaryResponse buildSummary(Instant validatedAtUtc, Instant publishedAtUtc) {
-        RuleEvaluationResult evaluation = ruleEvaluationService.evaluateLatestRoster();
         List<TaskPlanItem> tasks = taskPlanItemRepository.findAllByOrderByScheduledStartUtcAsc();
-        List<ValidationIssueResponse> issues = evaluation.issues().stream()
-            .map(this::issueFromRuleHit)
-            .toList();
+        IssueListSnapshot issueSnapshot = evaluateIssues();
+        List<ValidationIssueResponse> issues = issueSnapshot.issues();
 
         int assignedTasks = countStatus(tasks, STATUS_ASSIGNED) + countStatus(tasks, STATUS_ASSIGNED_DRAFT)
             + countStatus(tasks, STATUS_PUBLISHED) + countStatus(tasks, STATUS_NEEDS_REVIEW)
@@ -142,15 +157,13 @@ public class ValidationPublishService {
         int draftAssignedTasks = countStatus(tasks, STATUS_ASSIGNED_DRAFT);
         int unassignedTasks = countStatus(tasks, STATUS_UNASSIGNED);
         int publishedTasks = countStatus(tasks, STATUS_PUBLISHED);
-        int blockedCount = countSeverity(issues, "BLOCK");
-        int warningCount = countSeverity(issues, "WARNING");
         int publishableTasks = (int) tasks.stream()
             .filter(task -> PUBLISHABLE_STATUSES.contains(task.getStatus()))
             .count();
 
         return new ValidationPublishSummaryResponse(
-            evaluation.rosterVersionNo(),
-            evaluation.rosterVersionStatus(),
+            issueSnapshot.rosterVersionNo(),
+            issueSnapshot.rosterVersionStatus(),
             validatedAtUtc,
             publishedAtUtc,
             tasks.size(),
@@ -158,12 +171,26 @@ public class ValidationPublishService {
             draftAssignedTasks,
             unassignedTasks,
             publishedTasks,
-            blockedCount,
-            warningCount,
+            issueSnapshot.blockedCount(),
+            issueSnapshot.warningCount(),
             publishableTasks,
-            blockedCount == 0 && publishableTasks > 0,
-            warningCount > 0,
+            issueSnapshot.blockedCount() == 0 && publishableTasks > 0,
+            issueSnapshot.warningCount() > 0,
             inactiveRuleIds(),
+            issues
+        );
+    }
+
+    private IssueListSnapshot evaluateIssues() {
+        RuleEvaluationResult evaluation = ruleEvaluationService.evaluateLatestRoster();
+        List<ValidationIssueResponse> issues = evaluation.issues().stream()
+            .map(this::issueFromRuleHit)
+            .toList();
+        return new IssueListSnapshot(
+            evaluation.rosterVersionNo(),
+            evaluation.rosterVersionStatus(),
+            countSeverity(issues, "BLOCK"),
+            countSeverity(issues, "WARNING"),
             issues
         );
     }
@@ -342,6 +369,15 @@ public class ValidationPublishService {
     }
 
     private record DraftRoster(Long id, String versionNo, String status) {
+    }
+
+    private record IssueListSnapshot(
+        String rosterVersionNo,
+        String rosterVersionStatus,
+        int blockedCount,
+        int warningCount,
+        List<ValidationIssueResponse> issues
+    ) {
     }
 
     private List<String> inactiveRuleIds() {

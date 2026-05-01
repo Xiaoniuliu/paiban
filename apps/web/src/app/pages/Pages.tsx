@@ -2,15 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
   Archive,
-  ArrowRight,
   Clock,
   FileCheck2,
-  ListChecks,
   Pencil,
   Plane,
   Plus,
   RefreshCw,
-  Send,
   Users,
 } from 'lucide-react';
 import type { ApiClient } from '../lib/api';
@@ -47,8 +44,6 @@ import type {
   TaskPlanImportBatch,
   TaskPlanItem,
   TimelineBlock,
-  ValidationIssue,
-  ValidationPublishSummary,
   ViewId,
 } from '../types';
 import { Badge } from '../components/ui/badge';
@@ -82,6 +77,8 @@ export { FlightOperationsPage } from './FlightOperationsPages';
 export { FlightTaskPage } from './FlightTaskPage';
 export { CrewInformationPage } from './CrewInformationPage';
 export { CrewStatusTimelinePage } from './CrewStatusTimelinePage';
+export { IssueHandlingPage } from './IssueHandlingPage';
+export { PublishExportPage, PublishResultPage } from './PublishResultPage';
 const timelineQueryDays = 62;
 
 export function RosteringWorkbenchPage(props: PageProps) {
@@ -167,88 +164,12 @@ export function WorkbenchUnassignedTasksPage({ activeView, api, t }: PageProps) 
 
 export function WorkbenchDraftVersionsPage({ activeView, api, t }: PageProps) {
   const { items, loading, error, reload } = useTaskPlanItems(api, t);
-  const [summary, setSummary] = useState<ValidationPublishSummary | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(true);
-  const [summaryError, setSummaryError] = useState('');
-  const [validating, setValidating] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
-  const [publishNotice, setPublishNotice] = useState('');
-
-  const loadSummary = useCallback(() => {
-    let active = true;
-    setSummaryLoading(true);
-    setSummaryError('');
-    api.validationPublishSummary()
-      .then((nextSummary) => {
-        if (active) {
-          setSummary(nextSummary);
-          setSelectedIssueId((current) => keepSelectedIssue(current, nextSummary.issues));
-        }
-      })
-      .catch(() => {
-        if (active) setSummaryError(t('validationPublishLoadError'));
-      })
-      .finally(() => {
-        if (active) setSummaryLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [api, t]);
-
-  useEffect(() => loadSummary(), [loadSummary]);
-
-  const refreshAll = useCallback(() => {
-    reload();
-    loadSummary();
-  }, [loadSummary, reload]);
-  const assignment = useAssignmentFlow(api, t, refreshAll);
+  const assignment = useAssignmentFlow(api, t, reload);
   const draftItems = useMemo(() => (
     items
       .filter((item) => item.status === 'ASSIGNED_DRAFT')
       .sort((left, right) => utcEpochMs(left.scheduledStartUtc) - utcEpochMs(right.scheduledStartUtc))
   ), [items]);
-  const selectedIssue = useMemo(() => {
-    if (!summary || summary.issues.length === 0) return null;
-    return summary.issues.find((issue) => issue.id === selectedIssueId) ?? summary.issues[0];
-  }, [selectedIssueId, summary]);
-  const publishedReady = summary
-    ? summary.blockedCount === 0 && summary.warningCount === 0 && summary.publishableTasks === 0 && summary.publishedTasks > 0
-    : false;
-
-  const runValidation = async () => {
-    setValidating(true);
-    setSummaryError('');
-    setPublishNotice('');
-    try {
-      const nextSummary = await api.runValidationPublishCheck();
-      setSummary(nextSummary);
-      setSelectedIssueId((current) => keepSelectedIssue(current, nextSummary.issues));
-    } catch {
-      setSummaryError(t('validationPublishValidateError'));
-    } finally {
-      setValidating(false);
-    }
-  };
-
-  const publishRoster = async () => {
-    if (!summary?.canPublish || !summary.validatedAtUtc) return;
-    setPublishing(true);
-    setSummaryError('');
-    setPublishNotice('');
-    try {
-      const nextSummary = await api.publishRoster(summary.managerConfirmationRequired);
-      setSummary(nextSummary);
-      setSelectedIssueId((current) => keepSelectedIssue(current, nextSummary.issues));
-      reload();
-      setPublishNotice(t('validationPublishPublished'));
-    } catch {
-      setSummaryError(t('validationPublishPublishError'));
-    } finally {
-      setPublishing(false);
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -257,87 +178,41 @@ export function WorkbenchDraftVersionsPage({ activeView, api, t }: PageProps) {
         title={t(viewTitleKey[activeView])}
         description={t('workbenchDescription')}
       />
-      <Card className="rounded-lg" data-testid="validation-publish-actions">
+      <Card className="rounded-lg" data-testid="publish-result-entry">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <CardTitle className="text-base">{t('draftVersionActions')}</CardTitle>
-              <CardDescription>{t('draftVersionActionsDescription')}</CardDescription>
+              <CardTitle className="text-base">{t('publishResultsActionTitle')}</CardTitle>
+              <CardDescription>{t('publishResultsWorkbenchRedirect')}</CardDescription>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={refreshAll}
-                disabled={loading || summaryLoading || validating || publishing}
-              >
-                <RefreshCw className="h-4 w-4" />
-                {t('refresh')}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={runValidation}
-                disabled={summaryLoading || validating || publishing}
-                data-testid="validation-submit"
-              >
-                <ListChecks className="h-4 w-4" />
-                {validating ? `${t('loading')}...` : t('submitValidation')}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={publishRoster}
-                disabled={!summary?.canPublish || !summary.validatedAtUtc || validating || publishing}
-                data-testid="validation-publish"
-              >
-                <Send className="h-4 w-4" />
-                {publishing ? `${t('saving')}...` : t('publishRoster')}
-              </Button>
-            </div>
+            <Button asChild type="button" size="sm">
+              <a href="/validation-center/release-gates">{t('openPublishResults')}</a>
+            </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {summaryLoading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
-          {summary && (
-            <>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-                <ValidationMetric label={t('validationRosterVersion')} value={summary.rosterVersionNo} />
-                <ValidationMetric label={t('validationTotalTasks')} value={summary.totalTasks} />
-                <ValidationMetric label={t('validationDraftAssigned')} value={summary.draftAssignedTasks} />
-                <ValidationMetric label={t('validationUnassigned')} value={summary.unassignedTasks} tone={summary.unassignedTasks > 0 ? 'text-destructive' : undefined} />
-                <ValidationMetric label={t('validationBlocks')} value={summary.blockedCount} tone={summary.blockedCount > 0 ? 'text-destructive' : 'text-success'} />
-                <ValidationMetric label={t('validationWarnings')} value={summary.warningCount} tone={summary.warningCount > 0 ? 'text-warning' : undefined} />
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <ValidationReadinessBadge summary={summary} publishedReady={publishedReady} t={t} />
-                {summary.validatedAtUtc ? (
-                  <span className="text-muted-foreground">
-                    {t('validationLastRun')}: <Timestamp value={summary.validatedAtUtc} />
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">{t('validationNotRun')}</span>
-                )}
-                {summary.managerConfirmationRequired && (
-                  <Badge variant="outline" className="border-warning text-warning">{t('validationManagerConfirm')}</Badge>
-                )}
-              </div>
-              {summary.inactiveRuleIds.length > 0 && (
-                <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
-                  <span className="font-medium">{t('validationInactiveRulesTitle')}</span>
-                  <span className="ml-2">{summary.inactiveRuleIds.join(', ')}</span>
-                </div>
-              )}
-            </>
-          )}
-          {publishNotice && <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">{publishNotice}</div>}
-          {(summaryError || error) && <div className="text-sm text-destructive">{summaryError || error}</div>}
+        <CardContent className="text-sm text-muted-foreground">
+          {t('publishResultsWorkbenchNote')}
         </CardContent>
       </Card>
       {loading && <div className="text-sm text-muted-foreground">{t('loading')}...</div>}
-      {!loading && summary && (
+      {!loading && (
         <div className="space-y-4">
+          <Card className="rounded-lg" data-testid="issue-handling-entry">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <CardTitle className="text-base">{t('validationIssues')}</CardTitle>
+                  <CardDescription>{t('issueHandlingDescription')}</CardDescription>
+                </div>
+                <Button asChild type="button" size="sm" variant="outline">
+                  <a href="/validation-center/violation-handling">{t('openIssueHandling')}</a>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              {t('issueHandlingRefreshHint')}
+            </CardContent>
+          </Card>
           <Card className="rounded-lg" data-testid="draft-task-list">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">{t('validationDraftAssigned')}</CardTitle>
@@ -389,73 +264,9 @@ export function WorkbenchDraftVersionsPage({ activeView, api, t }: PageProps) {
               </div>
             </CardContent>
           </Card>
-
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
-            <Card className="rounded-lg" data-testid="validation-issue-list">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t('validationIssues')}</CardTitle>
-              <CardDescription>{t('validationIssuesDescription')}</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-muted-foreground">
-                      {[t('severity'), t('taskPool'), t('route'), t('ruleValidationStatus'), t('status'), t('actions')].map((column) => (
-                        <th key={column} className="whitespace-nowrap px-3 py-3 font-medium">{column}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.issues.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="p-6">
-                          <EmptyState
-                            title={publishedReady ? t('validationAlreadyPublished') : t('validationNoIssues')}
-                            description={publishedReady ? t('validationAlreadyPublishedDescription') : t('validationNoIssuesDescription')}
-                          />
-                        </td>
-                      </tr>
-                    ) : (
-                      summary.issues.map((issue) => (
-                        <tr
-                          key={issue.id}
-                          className={`cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-muted/40 ${selectedIssue?.id === issue.id ? 'bg-muted/50' : ''}`}
-                          data-testid={`validation-issue-${issue.taskId}`}
-                          onClick={() => setSelectedIssueId(issue.id)}
-                        >
-                          <td className="whitespace-nowrap px-3 py-3"><ValidationIssueSeverityBadge severity={issue.severity} t={t} /></td>
-                          <td className="whitespace-nowrap px-3 py-3 font-medium">{issue.taskCode}</td>
-                          <td className="whitespace-nowrap px-3 py-3">{issue.route}</td>
-                          <td className="px-3 py-3">
-                            <div className="font-medium">{issue.ruleId}</div>
-                            <div className="text-xs text-muted-foreground">{validationIssueRuleTitle(issue, t)}</div>
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-3">{validationIssueStatusLabel(issue.status, t)}</td>
-                          <td className="whitespace-nowrap px-3 py-3">
-                            <ValidationIssueAction
-                              issue={issue}
-                              t={t}
-                              onOpenAssignment={assignment.openAssignmentTask}
-                            />
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-            </Card>
-            <ValidationIssueDetail
-              issue={selectedIssue}
-              items={items}
-              t={t}
-              onOpenAssignment={assignment.openAssignmentTask}
-            />
-          </div>
         </div>
       )}
+      {error && <div className="text-sm text-destructive">{error}</div>}
       <WorkbenchAssignmentDrawer assignment={assignment} t={t} />
     </div>
   );
@@ -476,158 +287,6 @@ function ValidationMetric({
       <div className={`mt-1 truncate text-lg font-semibold ${tone ?? ''}`}>{value}</div>
     </div>
   );
-}
-
-function ValidationReadinessBadge({
-  publishedReady,
-  summary,
-  t,
-}: {
-  publishedReady: boolean;
-  summary: ValidationPublishSummary;
-  t: (key: string) => string;
-}) {
-  if (summary.blockedCount > 0) {
-    return <Badge variant="destructive">{t('validationBlocked')}</Badge>;
-  }
-  if (summary.warningCount > 0) {
-    return <Badge variant="outline" className="border-warning text-warning">{t('validationWarningReady')}</Badge>;
-  }
-  if (publishedReady) {
-    return <Badge className="bg-success text-white">{t('validationAlreadyPublished')}</Badge>;
-  }
-  if (summary.validatedAtUtc && summary.canPublish) {
-    return <Badge className="bg-success text-white">{t('validationReadyToPublish')}</Badge>;
-  }
-  return <Badge variant="outline">{t('validationPendingRun')}</Badge>;
-}
-
-function ValidationIssueSeverityBadge({ severity, t }: { severity: ValidationIssue['severity']; t: (key: string) => string }) {
-  if (severity === 'BLOCK') {
-    return <Badge variant="destructive">{t('validationSeverityBlock')}</Badge>;
-  }
-  return <Badge variant="outline" className="border-warning text-warning">{t('validationSeverityWarning')}</Badge>;
-}
-
-function ValidationIssueAction({
-  issue,
-  onOpenAssignment,
-  t,
-}: {
-  issue: ValidationIssue;
-  onOpenAssignment: (taskId: number) => void;
-  t: (key: string) => string;
-}) {
-  if (issue.actionType === 'ASSIGNMENT_DRAWER' || issue.actionType === 'STATUS_REPAIR') {
-    return (
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenAssignment(issue.taskId);
-        }}
-      >
-        {t('validationOpenAssignment')}
-        <ArrowRight className="h-4 w-4" />
-      </Button>
-    );
-  }
-  return (
-    <Button asChild size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>
-      <a href="/exceptions-cdr/exception-requests">{t('validationOpenException')}</a>
-    </Button>
-  );
-}
-
-function ValidationIssueDetail({
-  issue,
-  items,
-  onOpenAssignment,
-  t,
-}: {
-  issue: ValidationIssue | null;
-  items: TaskPlanItem[];
-  onOpenAssignment: (taskId: number) => void;
-  t: (key: string) => string;
-}) {
-  const task = issue ? items.find((item) => item.id === issue.taskId) : null;
-  return (
-    <Card className="rounded-lg" data-testid="validation-issue-detail">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">{t('validationIssueDetail')}</CardTitle>
-        <CardDescription>{issue ? validationIssueRuleTitle(issue, t) : t('validationIssueDetailEmpty')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        {!issue && <EmptyState title={t('validationIssueDetail')} description={t('validationIssueDetailEmpty')} />}
-        {issue && (
-          <>
-            <div className="space-y-2">
-              <div className="flex items-start justify-between gap-3">
-                <span className="text-muted-foreground">{t('taskPool')}</span>
-                <span className="text-right font-medium">{issue.taskCode}</span>
-              </div>
-              <div className="flex items-start justify-between gap-3">
-                <span className="text-muted-foreground">{t('route')}</span>
-                <span className="text-right">{issue.route || t('noData')}</span>
-              </div>
-              <div className="flex items-start justify-between gap-3">
-                <span className="text-muted-foreground">{t('start')}</span>
-                <span className="text-right"><Timestamp value={issue.startUtc} /></span>
-              </div>
-              <div className="flex items-start justify-between gap-3">
-                <span className="text-muted-foreground">{t('end')}</span>
-                <span className="text-right"><Timestamp value={issue.endUtc} /></span>
-              </div>
-              {task && (
-                <div className="flex items-start justify-between gap-3">
-                  <span className="text-muted-foreground">{t('status')}</span>
-                  <TaskStatusBadge status={task.status} t={t} />
-                </div>
-              )}
-            </div>
-            <div className="rounded-md border border-border bg-muted/30 p-3">
-              <div className="mb-1 font-medium">{issue.ruleId}</div>
-              <p className="text-muted-foreground">{validationIssueMessage(issue, t)}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <ValidationIssueAction issue={issue} t={t} onOpenAssignment={onOpenAssignment} />
-              <Button asChild size="sm" variant="ghost">
-                <a href="/rostering-workbench/flight-view">{t('validationOpenFlightView')}</a>
-              </Button>
-              <Button asChild size="sm" variant="ghost">
-                <a href="/rostering-workbench/crew-view">{t('validationOpenCrewView')}</a>
-              </Button>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function validationIssueStatusLabel(status: string, t: (key: string) => string) {
-  const key = `validationIssueStatus${status}`;
-  const label = t(key);
-  return label === key ? status : label;
-}
-
-function validationIssueRuleTitle(issue: ValidationIssue, t: (key: string) => string) {
-  const key = `validationRuleTitle${issue.ruleId}`;
-  const label = t(key);
-  return label === key ? issue.ruleTitle : label;
-}
-
-function validationIssueMessage(issue: ValidationIssue, t: (key: string) => string) {
-  const key = `validationRuleMessage${issue.ruleId}`;
-  const label = t(key);
-  return label === key ? issue.message : label;
-}
-
-function keepSelectedIssue(current: string | null, issues: ValidationIssue[]) {
-  if (current && issues.some((issue) => issue.id === current)) return current;
-  return issues[0]?.id ?? null;
 }
 
 export function WorkbenchRunDayAdjustmentsPage({ activeView, api, t, timezone }: PageProps) {

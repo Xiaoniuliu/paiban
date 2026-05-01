@@ -35,6 +35,7 @@ export type ViewId =
   | 'workbench-flight-view'
   | 'workbench-crew-view'
   | 'workbench-unassigned-tasks'
+  | 'draft-rostering'
   | 'workbench-draft-versions'
   | 'workbench-run-day-adjustments'
   | 'workbench-archive-entry'
@@ -113,6 +114,21 @@ export interface CrewMember {
   latestActualFdpSource: string;
 }
 
+export interface CrewProfileWritePayload {
+  crewCode: string;
+  employeeNo: string;
+  nameZh: string;
+  nameEn: string;
+  roleCode: string;
+  rankCode: string;
+  homeBase: string;
+  aircraftQualification: string;
+  acclimatizationStatus: string;
+  bodyClockTimezone: string;
+  normalCommuteMinutes: number;
+  externalEmploymentFlag: boolean;
+}
+
 export interface TaskPlanImportBatch {
   id: number;
   batchNo: string;
@@ -138,6 +154,37 @@ export interface TaskPlanItem {
   requiredCrewPattern: string | null;
   status: string;
   sourceStatus: string;
+}
+
+export interface TaskAssignmentReadiness {
+  tasks: TaskAssignmentTaskReadiness[];
+  crews: TaskAssignmentCrewReadiness[];
+}
+
+export interface TaskAssignmentTaskReadiness {
+  taskId: number;
+  taskCode: string;
+  requiresCrewAssignment: boolean;
+  assignmentRequirements: TaskAssignmentRequirement[];
+}
+
+export interface TaskAssignmentRequirement {
+  assignmentRole: string;
+  requiredRoleCode: string | null;
+  requiredQualificationCode: string | null;
+}
+
+export interface TaskAssignmentCrewReadiness {
+  id: number;
+  crewCode: string;
+  nameZh: string;
+  nameEn: string;
+  roleCode: string;
+  homeBase: string;
+  aircraftQualification: string;
+  availableForAssignmentNow: boolean;
+  unavailableBlockType: string | null;
+  unavailableUntilUtc: string | null;
 }
 
 export interface AirportDictionary {
@@ -173,6 +220,12 @@ export interface AircraftRegistry {
   status: string;
 }
 
+export interface FlightOperationsReferenceProtection {
+  referencedRouteCodes: string[];
+  referencedAircraftNos: string[];
+  referencedAirportCodes: string[];
+}
+
 export interface CrewQualification {
   id: number;
   crewMemberId: number;
@@ -180,16 +233,6 @@ export interface CrewQualification {
   qualificationCode: string;
   effectiveFromUtc: string | null;
   effectiveToUtc: string | null;
-  status: string;
-}
-
-export interface CrewExternalWork {
-  id: number;
-  crewMemberId: number;
-  externalType: string;
-  startUtc: string;
-  endUtc: string;
-  description: string;
   status: string;
 }
 
@@ -203,6 +246,23 @@ export interface AssignmentCrewCandidate {
   aircraftQualification: string;
   rollingFlightHours28d: number;
   rollingDutyHours28d: number;
+}
+
+export interface DraftRosteringTask {
+  taskId: number;
+  taskCode: string;
+  departureAirport: string | null;
+  arrivalAirport: string | null;
+  scheduledStartUtc: string;
+  scheduledEndUtc: string;
+  sectorCount: number;
+  taskStatus: string;
+  requiredCrewPattern: string | null;
+  canOpenAssignment: boolean;
+}
+
+export interface DraftRosteringTaskList {
+  tasks: DraftRosteringTask[];
 }
 
 export type AssignmentRole = 'PIC' | 'FO' | 'RELIEF' | 'EXTRA';
@@ -292,6 +352,14 @@ export interface ValidationIssue {
   evidenceWindowEndUtc: string | null;
 }
 
+export interface ValidationIssueList {
+  rosterVersionNo: string;
+  rosterVersionStatus: string;
+  blockedCount: number;
+  warningCount: number;
+  issues: ValidationIssue[];
+}
+
 export interface ValidationPublishSummary {
   rosterVersionNo: string;
   rosterVersionStatus: string;
@@ -309,6 +377,59 @@ export interface ValidationPublishSummary {
   managerConfirmationRequired: boolean;
   inactiveRuleIds: string[];
   issues: ValidationIssue[];
+}
+
+export interface PublishFlightResult {
+  taskId: number;
+  taskCode: string;
+  route: string;
+  scheduledStartUtc: string;
+  scheduledEndUtc: string;
+  aircraftType: string | null;
+  aircraftNo: string | null;
+  taskStatus: string;
+  crewAssignments: PublishFlightAssignment[];
+}
+
+export interface PublishFlightAssignment {
+  crewId: number | null;
+  crewCode: string;
+  crewNameZh: string;
+  crewNameEn: string;
+  assignmentRole: AssignmentRole | null;
+  displayOrder: number | null;
+}
+
+export interface PublishCrewResult {
+  crewId: number;
+  crewCode: string;
+  nameZh: string;
+  nameEn: string;
+  publishedTaskCount: number;
+  tasks: PublishCrewTask[];
+}
+
+export interface PublishCrewTask {
+  taskId: number;
+  taskCode: string;
+  route: string;
+  scheduledStartUtc: string;
+  scheduledEndUtc: string;
+  taskStatus: string;
+  assignmentRole: AssignmentRole | null;
+  displayOrder: number | null;
+}
+
+export interface PublishResultView {
+  summary: ValidationPublishSummary;
+  flightResults: PublishFlightResult[];
+  crewResults: PublishCrewResult[];
+}
+
+export interface PublishExportFile {
+  view: string;
+  fileName: string;
+  csv: string;
 }
 
 export interface TimelineBlock {

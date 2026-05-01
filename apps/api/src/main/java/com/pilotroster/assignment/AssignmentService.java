@@ -7,6 +7,8 @@ import com.pilotroster.assignment.AssignmentDtos.AssignmentTaskDetailResponse;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentTaskResponse;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentTimelineBlockResponse;
 import com.pilotroster.assignment.AssignmentDtos.ClearAssignmentDraftResponse;
+import com.pilotroster.assignment.AssignmentDtos.DraftRosteringTaskListResponse;
+import com.pilotroster.assignment.AssignmentDtos.DraftRosteringTaskSummaryResponse;
 import com.pilotroster.assignment.AssignmentDtos.SaveAssignmentDraftRequest;
 import com.pilotroster.assignment.AssignmentDtos.SaveAssignmentDraftResponse;
 import com.pilotroster.archive.FlightArchiveCaseRepository;
@@ -82,6 +84,30 @@ public class AssignmentService {
             .stream()
             .collect(Collectors.toMap(CrewMember::getId, Function.identity()));
         return toDetail(task, blocks, crewById, user);
+    }
+
+    @Transactional(readOnly = true)
+    public DraftRosteringTaskListResponse draftRosteringTasks(AuthenticatedUser user) {
+        List<DraftRosteringTaskSummaryResponse> tasks = taskPlanItemRepository.findAllByOrderByScheduledStartUtcAsc().stream()
+            .filter(task -> STATUS_UNASSIGNED.equals(task.getStatus()) || DRAFT_ASSIGNED_STATUS.equals(task.getStatus()))
+            .sorted(Comparator
+                .comparing((TaskPlanItem task) -> DRAFT_ASSIGNED_STATUS.equals(task.getStatus()) ? 1 : 0)
+                .thenComparing(TaskPlanItem::getScheduledStartUtc)
+                .thenComparing(TaskPlanItem::getId))
+            .map(task -> new DraftRosteringTaskSummaryResponse(
+                task.getId(),
+                task.getTaskCode(),
+                task.getDepartureAirport(),
+                task.getArrivalAirport(),
+                task.getScheduledStartUtc(),
+                task.getScheduledEndUtc(),
+                task.getSectorCount(),
+                task.getStatus(),
+                task.getRequiredCrewPattern(),
+                user.role() == UserRole.DISPATCHER || user.role() == UserRole.OPS_MANAGER || user.role() == UserRole.ADMIN
+            ))
+            .toList();
+        return new DraftRosteringTaskListResponse(tasks);
     }
 
     @Transactional

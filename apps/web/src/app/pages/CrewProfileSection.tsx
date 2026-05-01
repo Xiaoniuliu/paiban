@@ -12,6 +12,7 @@ export function CrewProfileSection({
   onAddCrew,
   onEditCrew,
   onDisableCrew,
+  onReactivateCrew,
 }: {
   crewRows: CrewMember[];
   language: Language;
@@ -20,6 +21,7 @@ export function CrewProfileSection({
   onAddCrew: () => void;
   onEditCrew: (crew: CrewMember) => void;
   onDisableCrew: (crewId: number) => void;
+  onReactivateCrew: (crewId: number) => void;
 }) {
   return (
     <Card className="rounded-lg">
@@ -61,7 +63,8 @@ export function CrewProfileSection({
                 <td className="py-3 pr-4">
                   <div className="flex gap-2">
                     {canEdit && <Button size="sm" variant="outline" onClick={() => onEditCrew(crew)}><Pencil className="mr-1 h-3 w-3" />{t('edit')}</Button>}
-                    {canEdit && <Button size="sm" variant="outline" onClick={() => onDisableCrew(crew.id)}>{t('disable')}</Button>}
+                    {canEdit && crew.status === 'ACTIVE' && <Button size="sm" variant="outline" onClick={() => onDisableCrew(crew.id)}>{t('disable')}</Button>}
+                    {canEdit && crew.status !== 'ACTIVE' && <Button size="sm" variant="outline" onClick={() => onReactivateCrew(crew.id)}>{t('reactivate')}</Button>}
                   </div>
                 </td>
               </tr>

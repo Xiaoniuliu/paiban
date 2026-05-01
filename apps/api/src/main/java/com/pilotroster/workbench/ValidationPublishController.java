@@ -2,6 +2,7 @@ package com.pilotroster.workbench;
 
 import com.pilotroster.auth.AuthenticatedUser;
 import com.pilotroster.common.ApiResponse;
+import com.pilotroster.workbench.ValidationPublishDtos.ValidationIssueListResponse;
 import com.pilotroster.workbench.ValidationPublishDtos.PublishRosterRequest;
 import com.pilotroster.workbench.ValidationPublishDtos.ValidationPublishSummaryResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -26,6 +27,12 @@ public class ValidationPublishController {
     @PreAuthorize("hasAnyRole('DISPATCHER','OPS_MANAGER','ADMIN')")
     public ApiResponse<ValidationPublishSummaryResponse> summary() {
         return ApiResponse.ok(validationPublishService.summary());
+    }
+
+    @GetMapping("/issues")
+    @PreAuthorize("hasAnyRole('DISPATCHER','OPS_MANAGER','ADMIN')")
+    public ApiResponse<ValidationIssueListResponse> issues() {
+        return ApiResponse.ok(validationPublishService.issues());
     }
 
     @PostMapping("/validate")
