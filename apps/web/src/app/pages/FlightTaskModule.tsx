@@ -164,20 +164,24 @@ export function FlightPlanBatchStrip({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          {canEdit && (
+          {canEdit && onImportBatch && (
             <Button size="sm" onClick={() => onImportBatch?.()}>
               <Upload className="mr-2 h-4 w-4" />
               {t('importNewBatch')}
             </Button>
           )}
-          <Button size="sm" variant="outline" disabled={!batch} onClick={() => onSwitchBatch?.()}>
-            <ArrowRightLeft className="mr-2 h-4 w-4" />
-            {t('switchBatch')}
-          </Button>
-          <Button size="sm" variant="outline" disabled={!batch} onClick={() => onViewBatch?.()}>
-            <Eye className="mr-2 h-4 w-4" />
-            {t('viewBatchDetail')}
-          </Button>
+          {onSwitchBatch && (
+            <Button size="sm" variant="outline" disabled={!batch} onClick={() => onSwitchBatch?.()}>
+              <ArrowRightLeft className="mr-2 h-4 w-4" />
+              {t('switchBatch')}
+            </Button>
+          )}
+          {onViewBatch && (
+            <Button size="sm" variant="outline" disabled={!batch} onClick={() => onViewBatch?.()}>
+              <Eye className="mr-2 h-4 w-4" />
+              {t('viewBatchDetail')}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

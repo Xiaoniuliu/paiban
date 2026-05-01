@@ -3,6 +3,7 @@ package com.pilotroster.assignment;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentCrewCandidateResponse;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentCrewAssignmentResponse;
 import com.pilotroster.assignment.AssignmentDtos.AdditionalAssignmentRequest;
+import com.pilotroster.assignment.AssignmentDtos.AssignmentRequirementResponse;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentTaskDetailResponse;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentTaskResponse;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentTimelineBlockResponse;
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -51,6 +53,7 @@ public class AssignmentService {
     private final TaskPlanItemRepository taskPlanItemRepository;
     private final CrewMemberRepository crewMemberRepository;
     private final TimelineBlockRepository timelineBlockRepository;
+    private final AssignmentEligibilityService assignmentEligibilityService;
     private final FlightArchiveCaseRepository archiveCaseRepository;
     private final JdbcTemplate jdbcTemplate;
     private final AuditLogService auditLogService;
@@ -60,6 +63,7 @@ public class AssignmentService {
         TaskPlanItemRepository taskPlanItemRepository,
         CrewMemberRepository crewMemberRepository,
         TimelineBlockRepository timelineBlockRepository,
+        AssignmentEligibilityService assignmentEligibilityService,
         FlightArchiveCaseRepository archiveCaseRepository,
         JdbcTemplate jdbcTemplate,
         AuditLogService auditLogService,
@@ -68,6 +72,7 @@ public class AssignmentService {
         this.taskPlanItemRepository = taskPlanItemRepository;
         this.crewMemberRepository = crewMemberRepository;
         this.timelineBlockRepository = timelineBlockRepository;
+        this.assignmentEligibilityService = assignmentEligibilityService;
         this.archiveCaseRepository = archiveCaseRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.auditLogService = auditLogService;
@@ -80,32 +85,45 @@ public class AssignmentService {
         Long rosterVersionId = draftRosterVersionId();
         List<TimelineBlock> blocks = sortedBlocks(timelineBlockRepository
             .findAllByTaskPlanItemIdAndRosterVersionIdOrderByIdAsc(task.getId(), rosterVersionId));
-        Map<Long, CrewMember> crewById = crewMemberRepository.findAll()
-            .stream()
+        List<CrewMember> crewMembers = crewMemberRepository.findAll();
+        Map<Long, CrewMember> crewById = crewMembers.stream()
             .collect(Collectors.toMap(CrewMember::getId, Function.identity()));
-        return toDetail(task, blocks, crewById, user);
+        return toDetail(task, blocks, crewMembers, crewById, user);
     }
 
     @Transactional(readOnly = true)
     public DraftRosteringTaskListResponse draftRosteringTasks(AuthenticatedUser user) {
-        List<DraftRosteringTaskSummaryResponse> tasks = taskPlanItemRepository.findAllByOrderByScheduledStartUtcAsc().stream()
+        List<TaskPlanItem> draftTasks = taskPlanItemRepository.findAllByOrderByScheduledStartUtcAsc().stream()
             .filter(task -> STATUS_UNASSIGNED.equals(task.getStatus()) || DRAFT_ASSIGNED_STATUS.equals(task.getStatus()))
             .sorted(Comparator
                 .comparing((TaskPlanItem task) -> DRAFT_ASSIGNED_STATUS.equals(task.getStatus()) ? 1 : 0)
                 .thenComparing(TaskPlanItem::getScheduledStartUtc)
                 .thenComparing(TaskPlanItem::getId))
-            .map(task -> new DraftRosteringTaskSummaryResponse(
-                task.getId(),
-                task.getTaskCode(),
-                task.getDepartureAirport(),
-                task.getArrivalAirport(),
-                task.getScheduledStartUtc(),
-                task.getScheduledEndUtc(),
-                task.getSectorCount(),
-                task.getStatus(),
-                task.getRequiredCrewPattern(),
-                user.role() == UserRole.DISPATCHER || user.role() == UserRole.OPS_MANAGER || user.role() == UserRole.ADMIN
-            ))
+            .toList();
+        Set<Long> archivedTaskIds = archiveCaseRepository.findAllByFlightIdIn(
+                draftTasks.stream().map(TaskPlanItem::getId).toList()
+            ).stream()
+            .map(com.pilotroster.archive.FlightArchiveCase::getFlightId)
+            .collect(Collectors.toSet());
+        List<DraftRosteringTaskSummaryResponse> tasks = draftTasks.stream()
+            .map(task -> {
+                DraftEditDecision decision = draftDecision(task, user, archivedTaskIds.contains(task.getId()));
+                return new DraftRosteringTaskSummaryResponse(
+                    task.getId(),
+                    task.getTaskCode(),
+                    task.getDepartureAirport(),
+                    task.getArrivalAirport(),
+                    task.getScheduledStartUtc(),
+                    task.getScheduledEndUtc(),
+                    task.getSectorCount(),
+                    task.getStatus(),
+                    task.getRequiredCrewPattern(),
+                    canOpenAssignment(user),
+                    decision.canEditDraft(),
+                    decision.canClearDraft(),
+                    decision.blockedReason()
+                );
+            })
             .toList();
         return new DraftRosteringTaskListResponse(tasks);
     }
@@ -125,7 +143,8 @@ public class AssignmentService {
         CrewMember pic = crew(request.picCrewId());
         CrewMember fo = crew(request.foCrewId());
         List<DesiredAssignment> desiredAssignments = desiredAssignments(pic, fo, request.additionalAssignments());
-        validateAssignments(pic, fo, desiredAssignments);
+        List<TimelineBlock> taskWindowBlocks = assignmentEligibilityService.taskWindowBlocks(task);
+        validateAssignments(task, desiredAssignments, taskWindowBlocks);
 
         Long rosterVersionId = draftRosterVersionId();
         List<TimelineBlock> existingBlocks = timelineBlockRepository
@@ -221,6 +240,7 @@ public class AssignmentService {
     private AssignmentTaskDetailResponse toDetail(
         TaskPlanItem task,
         List<TimelineBlock> blocks,
+        List<CrewMember> crewMembers,
         Map<Long, CrewMember> crewById,
         AuthenticatedUser user
     ) {
@@ -230,15 +250,19 @@ public class AssignmentService {
         boolean published = STATUS_PUBLISHED.equals(task.getStatus());
         boolean cancelled = STATUS_CANCELLED.equals(task.getStatus());
         boolean canEdit = user.role() == UserRole.DISPATCHER && !archiveExists && !published && !cancelled;
+        boolean canClearDraft = canEdit && DRAFT_ASSIGNED_STATUS.equals(task.getStatus());
+        List<TimelineBlock> taskWindowBlocks = assignmentEligibilityService.taskWindowBlocks(task);
         return new AssignmentTaskDetailResponse(
             toTaskResponse(task),
             selectedPicCrewId,
             selectedFoCrewId,
-            candidates("CAPTAIN"),
-            candidates("FIRST_OFFICER"),
-            allCandidates(),
+            candidates(task, crewMembers, ROLE_PIC, "CAPTAIN", taskWindowBlocks),
+            candidates(task, crewMembers, ROLE_FO, "FIRST_OFFICER", taskWindowBlocks),
+            allCandidates(task, crewMembers, taskWindowBlocks),
             blocks.stream().map(this::toCrewAssignmentResponse).toList(),
             blocks.stream().map(this::toBlockResponse).toList(),
+            assignmentRequirements(task),
+            canClearDraft,
             canEdit,
             canEdit ? null : readOnlyReason(user, archiveExists, published, cancelled)
         );
@@ -259,20 +283,28 @@ public class AssignmentService {
             .orElse(null);
     }
 
-    private List<AssignmentCrewCandidateResponse> candidates(String roleCode) {
-        return crewMemberRepository.findAll()
-            .stream()
+    private List<AssignmentCrewCandidateResponse> candidates(
+        TaskPlanItem task,
+        List<CrewMember> crewMembers,
+        String assignmentRole,
+        String roleCode,
+        List<TimelineBlock> taskWindowBlocks
+    ) {
+        return crewMembers.stream()
             .filter(crew -> roleCode.equals(crew.getRoleCode()))
             .sorted(Comparator.comparing(CrewMember::getCrewCode))
-            .map(this::toCandidateResponse)
+            .map(crew -> toCandidateResponse(task, crew, assignmentRole, taskWindowBlocks))
             .toList();
     }
 
-    private List<AssignmentCrewCandidateResponse> allCandidates() {
-        return crewMemberRepository.findAll()
-            .stream()
+    private List<AssignmentCrewCandidateResponse> allCandidates(
+        TaskPlanItem task,
+        List<CrewMember> crewMembers,
+        List<TimelineBlock> taskWindowBlocks
+    ) {
+        return crewMembers.stream()
             .sorted(Comparator.comparing(CrewMember::getCrewCode))
-            .map(this::toCandidateResponse)
+            .map(crew -> toCandidateResponse(task, crew, ROLE_EXTRA, taskWindowBlocks))
             .toList();
     }
 
@@ -289,19 +321,32 @@ public class AssignmentService {
         return assignments;
     }
 
-    private void validateAssignments(CrewMember pic, CrewMember fo, List<DesiredAssignment> assignments) {
-        if (!"CAPTAIN".equals(pic.getRoleCode())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PIC must be a captain");
-        }
-        if (!"FIRST_OFFICER".equals(fo.getRoleCode())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "FO must be a first officer");
-        }
+    private void validateAssignments(
+        TaskPlanItem task,
+        List<DesiredAssignment> assignments,
+        List<TimelineBlock> taskWindowBlocks
+    ) {
         long uniqueCrewCount = assignments.stream()
             .map(assignment -> assignment.crew().getId())
             .distinct()
             .count();
         if (uniqueCrewCount != assignments.size()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Crew members cannot be assigned more than once");
+        }
+        for (DesiredAssignment assignment : assignments) {
+            AssignmentEligibilityService.EligibilityResult eligibility = assignmentEligibilityService.eligibility(
+                task,
+                assignment.crew(),
+                assignment.assignmentRole(),
+                task.getId(),
+                taskWindowBlocks
+            );
+            if (!eligibility.eligible()) {
+                throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Crew is not eligible for assignment: " + String.join(",", eligibility.reasonCodes())
+                );
+            }
         }
     }
 
@@ -353,6 +398,31 @@ public class AssignmentService {
         return null;
     }
 
+    private boolean canOpenAssignment(AuthenticatedUser user) {
+        return user.role() == UserRole.DISPATCHER || user.role() == UserRole.OPS_MANAGER || user.role() == UserRole.ADMIN;
+    }
+
+    private DraftEditDecision draftDecision(TaskPlanItem task, AuthenticatedUser user, boolean archiveExists) {
+        boolean published = STATUS_PUBLISHED.equals(task.getStatus());
+        boolean cancelled = STATUS_CANCELLED.equals(task.getStatus());
+        boolean canEditDraft = user.role() == UserRole.DISPATCHER && !archiveExists && !published && !cancelled;
+        return new DraftEditDecision(
+            canEditDraft,
+            canEditDraft && DRAFT_ASSIGNED_STATUS.equals(task.getStatus()),
+            canEditDraft ? null : readOnlyReason(user, archiveExists, published, cancelled)
+        );
+    }
+
+    private List<AssignmentRequirementResponse> assignmentRequirements(TaskPlanItem task) {
+        return assignmentEligibilityService.requirements(task).stream()
+            .map(requirement -> new AssignmentRequirementResponse(
+                requirement.assignmentRole(),
+                requirement.requiredRoleCode(),
+                requirement.requiredQualificationCode()
+            ))
+            .toList();
+    }
+
     private AssignmentTaskResponse toTaskResponse(TaskPlanItem task) {
         return new AssignmentTaskResponse(
             task.getId(),
@@ -368,7 +438,19 @@ public class AssignmentService {
         );
     }
 
-    private AssignmentCrewCandidateResponse toCandidateResponse(CrewMember crew) {
+    private AssignmentCrewCandidateResponse toCandidateResponse(
+        TaskPlanItem task,
+        CrewMember crew,
+        String assignmentRole,
+        List<TimelineBlock> taskWindowBlocks
+    ) {
+        AssignmentEligibilityService.EligibilityResult eligibility = assignmentEligibilityService.eligibility(
+            task,
+            crew,
+            assignmentRole,
+            task.getId(),
+            taskWindowBlocks
+        );
         return new AssignmentCrewCandidateResponse(
             crew.getId(),
             crew.getCrewCode(),
@@ -378,7 +460,9 @@ public class AssignmentService {
             crew.getHomeBase(),
             crew.getAircraftQualification(),
             crew.getRollingFlightHours28d(),
-            crew.getRollingDutyHours28d()
+            crew.getRollingDutyHours28d(),
+            eligibility.eligible(),
+            eligibility.reasonCodes()
         );
     }
 
@@ -430,6 +514,13 @@ public class AssignmentService {
         CrewMember crew,
         String assignmentRole,
         int displayOrder
+    ) {
+    }
+
+    private record DraftEditDecision(
+        boolean canEditDraft,
+        boolean canClearDraft,
+        String blockedReason
     ) {
     }
 }

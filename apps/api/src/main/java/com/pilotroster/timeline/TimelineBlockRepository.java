@@ -15,4 +15,6 @@ public interface TimelineBlockRepository extends JpaRepository<TimelineBlock, Lo
     List<TimelineBlock> findAllByTaskPlanItemIdOrderByIdAsc(Long taskPlanItemId);
 
     List<TimelineBlock> findAllByTaskPlanItemIdAndRosterVersionIdOrderByIdAsc(Long taskPlanItemId, Long rosterVersionId);
+
+    void deleteAllByTaskPlanItemId(Long taskPlanItemId);
 }

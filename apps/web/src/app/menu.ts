@@ -71,10 +71,10 @@ export const menuGroups: MenuGroup[] = [
   {
     id: 'menu-crew-status',
     icon: Users,
-    roles: ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT'],
+    roles: operationsRoles,
     children: [
       { id: 'crew-list', roles: crewReadRoles },
-      { id: 'crew-status-timeline', roles: ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT'] },
+      { id: 'crew-status-timeline', roles: operationsRoles },
     ],
     aliases: [
       'crew-profile',

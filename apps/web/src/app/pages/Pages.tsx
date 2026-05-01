@@ -25,7 +25,6 @@ import type {
   ArchiveCase,
   ArchiveCaseDetail,
   AssignmentRole,
-  AssignmentTaskDetail,
   AircraftRegistry,
   AirportDictionary,
   CreateRunDayAdjustmentRequest,
@@ -39,7 +38,6 @@ import type {
   Language,
   RunDayAdjustment,
   RunDayAdjustmentType,
-  SaveAssignmentDraftRequest,
   SaveCrewArchiveFormRequest,
   TaskPlanImportBatch,
   TaskPlanItem,
@@ -57,7 +55,6 @@ import { DataTableShell, EmptyState, FilterBar, PageHeader } from '../components
 import { Timestamp } from '../components/time';
 import { defaultGanttWindow, GanttTimeline } from '../components/timeline/GanttTimeline';
 import { ArchiveDrawer } from '../components/archive/ArchiveDrawer';
-import { AssignmentDrawer } from '../components/assignment/AssignmentDrawer';
 import type { PageProps } from './pageTypes';
 export {
   AccessDeniedPage,
@@ -80,6 +77,7 @@ export { CrewStatusTimelinePage } from './CrewStatusTimelinePage';
 export { IssueHandlingPage } from './IssueHandlingPage';
 export { PublishExportPage, PublishResultPage } from './PublishResultPage';
 const timelineQueryDays = 62;
+const draftRosteringHref = '/rostering-workbench/draft-rostering';
 
 export function RosteringWorkbenchPage(props: PageProps) {
   switch (props.activeView) {
@@ -115,7 +113,6 @@ function WorkbenchTimelinePage({
   viewMode,
 }: PageProps & { viewMode: 'FLIGHT' | 'CREW' }) {
   const workbench = useWorkbenchTimeline(api, t, viewMode);
-  const assignment = useAssignmentFlow(api, t, workbench.reloadTimeline);
 
   return (
     <Card className="flex h-[calc(100vh-6.5rem)] min-h-[30rem] flex-col gap-3 overflow-hidden rounded-lg">
@@ -126,18 +123,14 @@ function WorkbenchTimelinePage({
           viewMode={viewMode}
           workbench={workbench}
           t={t}
-          onAssignmentBlockClick={assignment.openAssignmentTask}
         />
       </CardContent>
-      <WorkbenchArchiveDrawer workbench={workbench} t={t} />
-      <WorkbenchAssignmentDrawer assignment={assignment} t={t} />
     </Card>
   );
 }
 
 export function WorkbenchUnassignedTasksPage({ activeView, api, t }: PageProps) {
-  const { items, loading, error, reload } = useTaskPlanItems(api, t);
-  const assignment = useAssignmentFlow(api, t, reload);
+  const { items, loading, error } = useTaskPlanItems(api, t);
 
   return (
     <div className="space-y-4">
@@ -154,17 +147,14 @@ export function WorkbenchUnassignedTasksPage({ activeView, api, t }: PageProps) 
           t={t}
           emptyTitle={t(viewTitleKey[activeView])}
           emptyDescription={t('noData')}
-          onOpenAssignment={assignment.openAssignmentTask}
         />
       )}
-      <WorkbenchAssignmentDrawer assignment={assignment} t={t} />
     </div>
   );
 }
 
 export function WorkbenchDraftVersionsPage({ activeView, api, t }: PageProps) {
-  const { items, loading, error, reload } = useTaskPlanItems(api, t);
-  const assignment = useAssignmentFlow(api, t, reload);
+  const { items, loading, error } = useTaskPlanItems(api, t);
   const draftItems = useMemo(() => (
     items
       .filter((item) => item.status === 'ASSIGNED_DRAFT')
@@ -247,13 +237,8 @@ export function WorkbenchDraftVersionsPage({ activeView, api, t }: PageProps) {
                           <td className="whitespace-nowrap px-3 py-3"><Timestamp value={item.scheduledEndUtc} /></td>
                           <td className="whitespace-nowrap px-3 py-3"><TaskStatusBadge status={item.status} t={t} /></td>
                           <td className="whitespace-nowrap px-3 py-3">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => assignment.openAssignmentTask(item.id)}
-                            >
-                              {t('assignmentAdjust')}
+                            <Button asChild type="button" size="sm" variant="outline">
+                              <a href={draftRosteringHref}>{t('assignmentAdjust')}</a>
                             </Button>
                           </td>
                         </tr>
@@ -267,7 +252,6 @@ export function WorkbenchDraftVersionsPage({ activeView, api, t }: PageProps) {
         </div>
       )}
       {error && <div className="text-sm text-destructive">{error}</div>}
-      <WorkbenchAssignmentDrawer assignment={assignment} t={t} />
     </div>
   );
 }
@@ -1048,9 +1032,6 @@ function RunDayImpactTimeline({
       windowStartUtc={workbench.timelineWindow.windowStartUtc}
       windowEndUtc={workbench.timelineWindow.windowEndUtc}
       t={t}
-      onWindowChange={workbench.setTimelineWindow}
-      onFlightBlockClick={workbench.openArchiveDrawer}
-      onAssignmentBlockClick={() => undefined}
     />
   );
 }
@@ -1241,10 +1222,6 @@ function useWorkbenchTimeline(
       .catch(() => setError(t('archiveLoadError')));
   }, [api, t]);
 
-  const openArchiveDrawer = useCallback((block: GanttTimelineBlock) => {
-    openArchiveCase(block.archiveCaseId);
-  }, [openArchiveCase]);
-
   const saveArchiveForm = async (formId: number, payload: SaveCrewArchiveFormRequest) => {
     setSaving(true);
     try {
@@ -1278,7 +1255,6 @@ function useWorkbenchTimeline(
     crewRows,
     error,
     openArchiveCase,
-    openArchiveDrawer,
     reloadTimeline,
     saving,
     saveArchiveForm,
@@ -1310,12 +1286,10 @@ function WorkbenchCardHeader({
 }
 
 function WorkbenchTimelineBody({
-  onAssignmentBlockClick,
   viewMode,
   workbench,
   t,
 }: {
-  onAssignmentBlockClick?: (taskId: number) => void;
   viewMode: 'FLIGHT' | 'CREW';
   workbench: WorkbenchTimelineState;
   t: (key: string) => string;
@@ -1332,13 +1306,6 @@ function WorkbenchTimelineBody({
           windowStartUtc={workbench.timelineWindow.windowStartUtc}
           windowEndUtc={workbench.timelineWindow.windowEndUtc}
           t={t}
-          onWindowChange={workbench.setTimelineWindow}
-          onFlightBlockClick={workbench.openArchiveDrawer}
-          onAssignmentBlockClick={(block) => {
-            if (block.flightId != null) {
-              onAssignmentBlockClick?.(block.flightId);
-            }
-          }}
         />
       )}
     </>
@@ -1354,93 +1321,6 @@ function WorkbenchArchiveDrawer({ workbench, t }: { workbench: WorkbenchTimeline
       t={t}
       onClose={() => workbench.setArchiveDetail(null)}
       onSave={workbench.saveArchiveForm}
-    />
-  );
-}
-
-type AssignmentFlowState = ReturnType<typeof useAssignmentFlow>;
-
-function useAssignmentFlow(api: ApiClient, t: (key: string) => string, onSaved?: () => void) {
-  const [assignmentDetail, setAssignmentDetail] = useState<AssignmentTaskDetail | null>(null);
-  const [assignmentSaving, setAssignmentSaving] = useState(false);
-  const [assignmentError, setAssignmentError] = useState('');
-
-  const openAssignmentTask = useCallback((taskId: number) => {
-    setAssignmentError('');
-    setAssignmentDetail(null);
-    api.assignmentTask(taskId)
-      .then(setAssignmentDetail)
-      .catch(() => setAssignmentError(t('assignmentLoadError')));
-  }, [api, t]);
-
-  const closeAssignment = useCallback(() => {
-    setAssignmentDetail(null);
-    setAssignmentError('');
-  }, []);
-
-  const saveAssignmentDraft = useCallback(async (payload: SaveAssignmentDraftRequest) => {
-    if (!assignmentDetail) return;
-    setAssignmentSaving(true);
-    setAssignmentError('');
-    try {
-      const result = await api.saveAssignmentDraft(assignmentDetail.task.id, payload);
-      setAssignmentDetail((current) => current
-        ? {
-            ...current,
-            task: result.task,
-            selectedPicCrewId: payload.picCrewId,
-            selectedFoCrewId: payload.foCrewId,
-            timelineBlocks: result.timelineBlocks,
-          }
-        : current);
-      onSaved?.();
-      closeAssignment();
-    } catch {
-      setAssignmentError(t('assignmentSaveError'));
-    } finally {
-      setAssignmentSaving(false);
-    }
-  }, [api, assignmentDetail, closeAssignment, onSaved, t]);
-
-  const clearAssignmentDraft = useCallback(async () => {
-    if (!assignmentDetail) return;
-    setAssignmentSaving(true);
-    setAssignmentError('');
-    try {
-      await api.clearAssignmentDraft(assignmentDetail.task.id);
-      onSaved?.();
-      closeAssignment();
-    } catch {
-      setAssignmentError(t('assignmentClearDraftError'));
-    } finally {
-      setAssignmentSaving(false);
-    }
-  }, [api, assignmentDetail, closeAssignment, onSaved, t]);
-
-  return {
-    assignmentDetail,
-    assignmentError,
-    assignmentSaving,
-    clearAssignmentDraft,
-    closeAssignment,
-    openAssignmentTask,
-    saveAssignmentDraft,
-  };
-}
-
-function WorkbenchAssignmentDrawer({ assignment, t }: { assignment: AssignmentFlowState; t: (key: string) => string }) {
-  if (!assignment.assignmentDetail) {
-    return assignment.assignmentError ? <div className="text-sm text-destructive">{assignment.assignmentError}</div> : null;
-  }
-  return (
-    <AssignmentDrawer
-      detail={assignment.assignmentDetail}
-      saving={assignment.assignmentSaving}
-      error={assignment.assignmentError}
-      t={t}
-      onClearDraft={assignment.clearAssignmentDraft}
-      onClose={assignment.closeAssignment}
-      onSave={assignment.saveAssignmentDraft}
     />
   );
 }
@@ -1478,13 +1358,11 @@ function TaskPlanItemsTable({
   emptyDescription,
   emptyTitle,
   items,
-  onOpenAssignment,
   t,
 }: {
   emptyDescription: string;
   emptyTitle: string;
   items: TaskPlanItem[];
-  onOpenAssignment: (taskId: number) => void;
   t: (key: string) => string;
 }) {
   if (items.length === 0) {
@@ -1513,9 +1391,8 @@ function TaskPlanItemsTable({
               {items.map((item) => (
                 <tr
                   key={item.id}
-                  className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-muted/40"
+                  className="border-b border-border last:border-0"
                   data-testid={`task-plan-row-${item.id}`}
-                  onClick={() => onOpenAssignment(item.id)}
                 >
                   <td className="px-4 py-3 font-medium">{item.taskCode}</td>
                   <td className="px-4 py-3">{routeLabel(item)}</td>
@@ -1525,16 +1402,13 @@ function TaskPlanItemsTable({
                   <td className="px-4 py-3"><TaskStatusBadge status={item.status} t={t} /></td>
                   <td className="px-4 py-3">
                     <Button
+                      asChild
                       type="button"
                       size="sm"
                       variant={item.status === 'UNASSIGNED' ? 'default' : 'outline'}
                       data-testid={`assignment-open-${item.id}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenAssignment(item.id);
-                      }}
                     >
-                      {item.status === 'UNASSIGNED' ? t('assignmentOpen') : t('assignmentAdjust')}
+                      <a href={draftRosteringHref}>{item.status === 'UNASSIGNED' ? t('assignmentOpen') : t('assignmentAdjust')}</a>
                     </Button>
                   </td>
                 </tr>

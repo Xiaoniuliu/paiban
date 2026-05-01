@@ -35,6 +35,8 @@ class TaskPlanControllerIntegrationTests {
     @BeforeEach
     @AfterEach
     void cleanTestRows() {
+        jdbcTemplate.update("DELETE vh FROM violation_hit vh JOIN task_plan_item tpi ON tpi.id = vh.task_id WHERE tpi.task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107')");
+        jdbcTemplate.update("DELETE tb FROM timeline_block tb JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id WHERE tpi.task_code IN ('TEST9101', 'TEST9102', 'TEST9103', 'TEST9104', 'TEST9105', 'TEST9106', 'TEST9107')");
         jdbcTemplate.update("DELETE FROM timeline_block WHERE crew_member_id IN (SELECT id FROM crew_member WHERE crew_code IN ('TESTCREW91', 'TESTCREW92', 'TESTCREW93'))");
         jdbcTemplate.update("DELETE FROM crew_qualification WHERE crew_member_id IN (SELECT id FROM crew_member WHERE crew_code IN ('TESTCREW91', 'TESTCREW92', 'TESTCREW93'))");
         jdbcTemplate.update("DELETE FROM crew_member WHERE crew_code IN ('TESTCREW91', 'TESTCREW92', 'TESTCREW93')");
@@ -197,6 +199,24 @@ class TaskPlanControllerIntegrationTests {
         mockMvc.perform(delete("/api/task-plan/items/" + taskId)
                 .header("Authorization", "Bearer " + token))
             .andExpect(status().isConflict());
+    }
+
+    @Test
+    void unassignedTaskDeleteCleansDerivedTimelineAndViolationRows() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long batchId = createBatch(token);
+        Long taskId = createTask(batchId, "TEST9103", "UNASSIGNED");
+        Long timelineBlockId = insertTimelineBlock(taskId);
+        insertViolationHit(taskId, timelineBlockId);
+
+        mockMvc.perform(delete("/api/task-plan/items/" + taskId)
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id").value(taskId));
+
+        assertCount("SELECT COUNT(*) FROM task_plan_item WHERE id = ?", taskId, 0, "Expected task row to be deleted");
+        assertCount("SELECT COUNT(*) FROM timeline_block WHERE task_plan_item_id = ?", taskId, 0, "Expected derived timeline rows to be deleted");
+        assertCount("SELECT COUNT(*) FROM violation_hit WHERE task_id = ?", taskId, 0, "Expected derived violation rows to be deleted");
     }
 
     @Test
@@ -423,6 +443,64 @@ class TaskPlanControllerIntegrationTests {
             status
         );
         return jdbcTemplate.queryForObject("SELECT id FROM task_plan_item WHERE task_code = ?", Long.class, taskCode);
+    }
+
+    private Long insertTimelineBlock(Long taskId) {
+        jdbcTemplate.update("""
+            INSERT INTO timeline_block (
+              roster_version_id,
+              crew_member_id,
+              task_plan_item_id,
+              block_type,
+              start_utc,
+              end_utc,
+              display_label,
+              status
+            ) VALUES (1, NULL, ?, 'FLIGHT', ?, ?, 'TEST TASK BLOCK', 'PLANNED')
+            """,
+            taskId,
+            Instant.parse("2026-05-03T01:00:00Z"),
+            Instant.parse("2026-05-03T05:00:00Z")
+        );
+        return jdbcTemplate.queryForObject(
+            "SELECT id FROM timeline_block WHERE task_plan_item_id = ?",
+            Long.class,
+            taskId
+        );
+    }
+
+    private void insertViolationHit(Long taskId, Long timelineBlockId) {
+        jdbcTemplate.update("""
+            INSERT INTO violation_hit (
+              roster_version_id,
+              timeline_block_id,
+              rule_catalog_id,
+              severity,
+              status,
+              target_type,
+              target_id,
+              crew_id,
+              task_id,
+              evidence_window_start_utc,
+              evidence_window_end_utc,
+              message,
+              recommended_action,
+              evidence_json
+            ) VALUES (1, ?, 1, 'WARNING', 'OPEN', 'TASK', ?, NULL, ?, ?, ?, 'Test violation', 'Review', '{}')
+            """,
+            timelineBlockId,
+            taskId,
+            taskId,
+            Instant.parse("2026-05-03T01:00:00Z"),
+            Instant.parse("2026-05-03T05:00:00Z")
+        );
+    }
+
+    private void assertCount(String sql, Long taskId, int expectedCount, String failureMessage) {
+        Integer actualCount = jdbcTemplate.queryForObject(sql, Integer.class, taskId);
+        if (actualCount == null || actualCount != expectedCount) {
+            throw new AssertionError(failureMessage + " but found " + actualCount);
+        }
     }
 
     private String loginToken(String username, String password) throws Exception {

@@ -307,6 +307,123 @@ class OperationsMasterDataIntegrationTests {
     }
 
     @Test
+    void cancelledTasksDoNotBlockRunDataMaintenance() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long batchId = createBatch(token);
+
+        MvcResult airportResult = mockMvc.perform(post("/api/airports")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "iataCode": "TST",
+                      "nameZh": "测试机场",
+                      "nameEn": "Test Airport",
+                      "timezoneName": "Asia/Macau",
+                      "utcOffsetMinutes": 480,
+                      "countryCode": "TS"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long airportId = extractLong(airportResult.getResponse().getContentAsString(), "\"id\":");
+
+        MvcResult routeResult = mockMvc.perform(post("/api/flight-operations/routes")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "routeCode": "MFM-TEST",
+                      "departureAirport": "MFM",
+                      "arrivalAirport": "TST",
+                      "standardDurationMinutes": 300,
+                      "timeDifferenceMinutes": 0,
+                      "crossTimezone": false
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long routeId = extractLong(routeResult.getResponse().getContentAsString(), "\"id\":");
+
+        MvcResult aircraftResult = mockMvc.perform(post("/api/flight-operations/aircraft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "aircraftNo": "B-TEST01",
+                      "aircraftType": "TEST-UNREF-01",
+                      "fleet": "A330F",
+                      "baseAirport": "MFM",
+                      "seatCount": 0,
+                      "maxPayload": 60.5
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long aircraftId = extractLong(aircraftResult.getResponse().getContentAsString(), "\"id\":");
+
+        mockMvc.perform(post("/api/task-plan/items")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "batchId": %d,
+                      "taskCode": "TEST9001",
+                      "taskType": "FLIGHT",
+                      "titleZh": "测试航班",
+                      "titleEn": "Test Flight",
+                      "departureAirport": "MFM",
+                      "arrivalAirport": "TST",
+                      "scheduledStartUtc": "2026-05-03T01:00:00Z",
+                      "scheduledEndUtc": "2026-05-03T05:00:00Z",
+                      "sectorCount": 1,
+                      "aircraftType": "TEST-UNREF-01",
+                      "aircraftNo": "B-TEST01",
+                      "requiredCrewPattern": "PIC+FO"
+                    }
+                    """.formatted(batchId)))
+            .andExpect(status().isOk());
+        jdbcTemplate.update("UPDATE task_plan_item SET status = 'CANCELLED' WHERE task_code = 'TEST9001'");
+
+        mockMvc.perform(put("/api/flight-operations/routes/" + routeId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "routeCode": "MFM-TEST",
+                      "departureAirport": "MFM",
+                      "arrivalAirport": "TST",
+                      "standardDurationMinutes": 330,
+                      "timeDifferenceMinutes": 0,
+                      "crossTimezone": false
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/flight-operations/aircraft/" + aircraftId)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "aircraftNo": "B-TEST01",
+                      "aircraftType": "TEST-UNREF-01",
+                      "fleet": "A330F",
+                      "baseAirport": "MFM",
+                      "seatCount": 1,
+                      "maxPayload": 60.5
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/flight-operations/routes/" + routeId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/flight-operations/aircraft/" + aircraftId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/airports/" + airportId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+    }
+
+    @Test
     void crewProfileWritesIgnoreAvailabilityAndLimitLayerFields() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
 
@@ -375,6 +492,49 @@ class OperationsMasterDataIntegrationTests {
                       "rollingDutyHours14d": 122.5,
                       "rollingFlightHours12m": 433.5,
                       "latestActualFdpSource": "MANUAL_OVERRIDE_2"
+                    }
+                    """))
+            .andExpect(status().isGone());
+
+        mockMvc.perform(put("/api/crew-members/" + crewId + "/profile")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewCode": "TESTCREW01",
+                      "employeeNo": "TESTCREW01-UPDATED",
+                      "nameZh": "测试机组更新",
+                      "nameEn": "Test Crew Updated",
+                      "homeBase": "MFM"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.employeeNo").value("TESTCREW01-UPDATED"))
+            .andExpect(jsonPath("$.data.roleCode").value("FIRST_OFFICER"))
+            .andExpect(jsonPath("$.data.rankCode").value("FO"))
+            .andExpect(jsonPath("$.data.homeBase").value("MFM"))
+            .andExpect(jsonPath("$.data.aircraftQualification").value("A330"))
+            .andExpect(jsonPath("$.data.availabilityStatus").value("AVAILABLE"))
+            .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+            .andExpect(jsonPath("$.data.rollingFlightHours28d").value(0))
+            .andExpect(jsonPath("$.data.rollingDutyHours28d").value(0))
+            .andExpect(jsonPath("$.data.rollingDutyHours7d").value(0))
+            .andExpect(jsonPath("$.data.rollingDutyHours14d").value(0))
+            .andExpect(jsonPath("$.data.rollingFlightHours12m").value(0))
+            .andExpect(jsonPath("$.data.latestActualFdpSource").value("ACTUAL_ONLY"));
+
+        mockMvc.perform(put("/api/crew-members/" + crewId + "/operational")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "roleCode": "CAPTAIN",
+                      "rankCode": "CPT",
+                      "aircraftQualification": "A320",
+                      "acclimatizationStatus": "NON_ACCLIMATIZED",
+                      "bodyClockTimezone": "UTC",
+                      "normalCommuteMinutes": 35,
+                      "externalEmploymentFlag": true
                     }
                     """))
             .andExpect(status().isOk())

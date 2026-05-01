@@ -6,6 +6,8 @@ import type {
   AirportDictionary,
   FlightOperationsReferenceProtection,
   FlightRoute,
+  Role,
+  ViewId,
 } from '../types';
 import type { ApiClient } from '../lib/api';
 import {
@@ -20,7 +22,13 @@ const EMPTY_REFERENCE_PROTECTION: FlightOperationsReferenceProtection = {
   referencedAirportCodes: [],
 };
 
-export function useFlightOperationsManagement(api: ApiClient, t: (key: string) => string) {
+export function useFlightOperationsManagement(
+  api: ApiClient,
+  t: (key: string) => string,
+  activeView: ViewId,
+  userRole: Role,
+) {
+  const [activeTab, setActiveTab] = useState(() => flightOperationsInitialTab(activeView));
   const [airports, setAirports] = useState<AirportDictionary[]>([]);
   const [routes, setRoutes] = useState<FlightRoute[]>([]);
   const [aircraftRows, setAircraftRows] = useState<AircraftRegistry[]>([]);
@@ -31,12 +39,13 @@ export function useFlightOperationsManagement(api: ApiClient, t: (key: string) =
   const [editingAircraft, setEditingAircraft] = useState<Partial<AircraftRegistry> | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [loadWarning, setLoadWarning] = useState('');
 
   const refresh = useCallback(() => {
     setLoading(true);
-    setError('');
+    setLoadError('');
     setLoadWarning('');
     setReferenceProtectionReady(false);
     Promise.allSettled([
@@ -55,7 +64,7 @@ export function useFlightOperationsManagement(api: ApiClient, t: (key: string) =
           && routeResult.status !== 'fulfilled'
           && aircraftResult.status !== 'fulfilled'
           && protectionResult.status !== 'fulfilled') {
-          setError(t('flightOperationsLoadError'));
+          setLoadError(t('flightOperationsLoadError'));
           return;
         }
         if (airportResult.status !== 'fulfilled'
@@ -72,54 +81,79 @@ export function useFlightOperationsManagement(api: ApiClient, t: (key: string) =
     refresh();
   }, [refresh]);
 
-  const routeErrorFallback = `${t('routeManagement')}: ${t('saveFailed')}`;
-  const airportErrorFallback = `${t('airportTimezone')}: ${t('saveFailed')}`;
-  const aircraftErrorFallback = `${t('aircraftRegistry')}: ${t('saveFailed')}`;
+  useEffect(() => {
+    setActiveTab(flightOperationsInitialTab(activeView));
+  }, [activeView]);
+
+  const routeErrorFallback = t('routeSaveFailed');
+  const airportErrorFallback = t('airportSaveFailed');
+  const aircraftErrorFallback = t('aircraftSaveFailed');
 
   const saveRoute = useCallback((event: FormEvent) => {
     event.preventDefault();
     if (!editingRoute) return;
     setSaving(true);
+    setActionError('');
     const action = editingRoute.id ? api.updateFlightRoute(editingRoute.id, editingRoute) : api.createFlightRoute(editingRoute);
     action.then(() => {
       setEditingRoute(null);
       refresh();
-    }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, routeErrorFallback))).finally(() => setSaving(false));
+    }).catch((nextError: unknown) => setActionError(apiErrorMessage(nextError, routeErrorFallback))).finally(() => setSaving(false));
   }, [api, editingRoute, refresh, routeErrorFallback]);
 
   const saveAirport = useCallback((event: FormEvent) => {
     event.preventDefault();
     if (!editingAirport) return;
     setSaving(true);
+    setActionError('');
     const action = editingAirport.id ? api.updateAirport(editingAirport.id, editingAirport) : api.createAirport(editingAirport);
     action.then(() => {
       setEditingAirport(null);
       refresh();
-    }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, airportErrorFallback))).finally(() => setSaving(false));
+    }).catch((nextError: unknown) => setActionError(apiErrorMessage(nextError, airportErrorFallback))).finally(() => setSaving(false));
   }, [api, editingAirport, refresh, airportErrorFallback]);
 
   const saveAircraft = useCallback((event: FormEvent) => {
     event.preventDefault();
     if (!editingAircraft) return;
     setSaving(true);
+    setActionError('');
     const action = editingAircraft.id ? api.updateAircraft(editingAircraft.id, editingAircraft) : api.createAircraft(editingAircraft);
     action.then(() => {
       setEditingAircraft(null);
       refresh();
-    }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, aircraftErrorFallback))).finally(() => setSaving(false));
+    }).catch((nextError: unknown) => setActionError(apiErrorMessage(nextError, aircraftErrorFallback))).finally(() => setSaving(false));
   }, [api, editingAircraft, refresh, aircraftErrorFallback]);
 
   const deleteRoute = useCallback((routeId: number) => {
-    api.deleteFlightRoute(routeId).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, routeErrorFallback)));
+    setActionError('');
+    api.deleteFlightRoute(routeId).then(refresh).catch((nextError: unknown) => setActionError(apiErrorMessage(nextError, routeErrorFallback)));
   }, [api, refresh, routeErrorFallback]);
 
   const deleteAirport = useCallback((airportId: number) => {
-    api.deleteAirport(airportId).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, airportErrorFallback)));
+    setActionError('');
+    api.deleteAirport(airportId).then(refresh).catch((nextError: unknown) => setActionError(apiErrorMessage(nextError, airportErrorFallback)));
   }, [api, refresh, airportErrorFallback]);
 
   const deleteAircraft = useCallback((aircraftId: number) => {
-    api.deleteAircraft(aircraftId).then(refresh).catch((nextError: unknown) => setError(apiErrorMessage(nextError, aircraftErrorFallback)));
+    setActionError('');
+    api.deleteAircraft(aircraftId).then(refresh).catch((nextError: unknown) => setActionError(apiErrorMessage(nextError, aircraftErrorFallback)));
   }, [api, refresh, aircraftErrorFallback]);
+
+  const confirmDeleteRoute = useCallback((route: FlightRoute) => {
+    if (!globalThis.confirm(t('deleteRouteConfirm'))) return;
+    deleteRoute(route.id);
+  }, [deleteRoute, t]);
+
+  const confirmDeleteAirport = useCallback((airport: AirportDictionary) => {
+    if (!globalThis.confirm(t('deleteAirportConfirm'))) return;
+    deleteAirport(airport.id);
+  }, [deleteAirport, t]);
+
+  const confirmDeleteAircraft = useCallback((aircraft: AircraftRegistry) => {
+    if (!globalThis.confirm(t('deleteAircraftConfirm'))) return;
+    deleteAircraft(aircraft.id);
+  }, [deleteAircraft, t]);
 
   const airportByCode = useMemo(() => new Map(airports.map((airport) => [airport.iataCode, airport])), [airports]);
   const referencedRouteCodes = useMemo(() => new Set(referenceProtection.referencedRouteCodes), [referenceProtection]);
@@ -128,8 +162,11 @@ export function useFlightOperationsManagement(api: ApiClient, t: (key: string) =
   const referenceProtectionBlockedReason = referenceProtectionReady
     ? t('editDeleteBlockedByReference')
     : t('editDeleteBlockedByMissingReferences');
+  const canEdit = userRole === 'DISPATCHER' || userRole === 'ADMIN';
 
   return {
+    activeTab,
+    canEdit,
     airports,
     routes,
     aircraftRows,
@@ -144,20 +181,29 @@ export function useFlightOperationsManagement(api: ApiClient, t: (key: string) =
     editingAircraft,
     loading,
     saving,
-    error,
+    error: loadError,
+    actionError,
     loadWarning,
     refresh,
     saveRoute,
     saveAirport,
     saveAircraft,
-    deleteRoute,
-    deleteAirport,
-    deleteAircraft,
+    deleteRoute: confirmDeleteRoute,
+    deleteAirport: confirmDeleteAirport,
+    deleteAircraft: confirmDeleteAircraft,
     setEditingRoute,
     setEditingAirport,
     setEditingAircraft,
     startAddRoute: () => setEditingRoute(defaultFlightRouteForm()),
     startAddAirport: () => setEditingAirport(defaultAirportForm()),
     startAddAircraft: () => setEditingAircraft(defaultAircraftForm()),
+    setActiveTab,
   };
+}
+
+function flightOperationsInitialTab(activeView: ViewId) {
+  if (activeView === 'route-management') return 'routes';
+  if (activeView === 'aircraft-registry') return 'aircraft';
+  if (activeView === 'airport-timezone') return 'airports';
+  return 'routes';
 }

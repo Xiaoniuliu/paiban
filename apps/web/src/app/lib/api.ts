@@ -8,7 +8,10 @@ import type {
   ClearAssignmentDraftResponse,
   CreateRunDayAdjustmentRequest,
   CreateCrewStatusBlockRequest,
+  CrewCreateWritePayload,
   CrewMember,
+  CrewOperationalWritePayload,
+  CrewProfileOperationalWritePayload,
   CrewProfileWritePayload,
   CrewQualification,
   DraftRosteringTaskList,
@@ -73,15 +76,29 @@ export class ApiClient {
     return this.request<CrewMember[]>('/api/crew-members');
   }
 
-  async createCrewMember(payload: CrewProfileWritePayload) {
+  async createCrewMember(payload: CrewCreateWritePayload) {
     return this.request<CrewMember>('/api/crew-members', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   }
 
-  async updateCrewMember(crewId: number, payload: CrewProfileWritePayload) {
-    return this.request<CrewMember>(`/api/crew-members/${crewId}`, {
+  async updateCrewProfile(crewId: number, payload: CrewProfileWritePayload) {
+    return this.request<CrewMember>(`/api/crew-members/${crewId}/profile`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateCrewOperational(crewId: number, payload: CrewOperationalWritePayload) {
+    return this.request<CrewMember>(`/api/crew-members/${crewId}/operational`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateCrewProfileOperational(crewId: number, payload: CrewProfileOperationalWritePayload) {
+    return this.request<CrewMember>(`/api/crew-members/${crewId}/profile-operational`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     });

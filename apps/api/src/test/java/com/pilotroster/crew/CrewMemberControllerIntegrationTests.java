@@ -39,7 +39,7 @@ class CrewMemberControllerIntegrationTests {
     }
 
     @Test
-    void profileWriteContractCannotMutateProtectedCrewState() throws Exception {
+    void crewProfileAndOperationalWritesUseSeparateContracts() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
 
         MvcResult crewResult = mockMvc.perform(post("/api/crew-members")
@@ -51,9 +51,9 @@ class CrewMemberControllerIntegrationTests {
                       "employeeNo": "TESTCREWWB01",
                       "nameZh": "测试机组",
                       "nameEn": "Test Crew",
+                      "homeBase": "MFM",
                       "roleCode": "FIRST_OFFICER",
                       "rankCode": "FO",
-                      "homeBase": "MFM",
                       "aircraftQualification": "A330",
                       "acclimatizationStatus": "ACCLIMATIZED",
                       "bodyClockTimezone": "Asia/Macau",
@@ -62,8 +62,33 @@ class CrewMemberControllerIntegrationTests {
                     }
                     """))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.roleCode").value("FIRST_OFFICER"))
+            .andExpect(jsonPath("$.data.rankCode").value("FO"))
+            .andExpect(jsonPath("$.data.aircraftQualification").value("A330"))
+            .andExpect(jsonPath("$.data.acclimatizationStatus").value("ACCLIMATIZED"))
+            .andExpect(jsonPath("$.data.bodyClockTimezone").value("Asia/Macau"))
+            .andExpect(jsonPath("$.data.normalCommuteMinutes").value(20))
+            .andExpect(jsonPath("$.data.externalEmploymentFlag").value(false))
             .andReturn();
         Long crewId = extractLong(crewResult.getResponse().getContentAsString(), "\"id\":");
+
+        mockMvc.perform(put("/api/crew-members/" + crewId + "/operational")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "roleCode": "FIRST_OFFICER",
+                      "rankCode": "FO",
+                      "aircraftQualification": "A330",
+                      "acclimatizationStatus": "ACCLIMATIZED",
+                      "bodyClockTimezone": "Asia/Macau",
+                      "normalCommuteMinutes": 20,
+                      "externalEmploymentFlag": false
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.roleCode").value("FIRST_OFFICER"))
+            .andExpect(jsonPath("$.data.aircraftQualification").value("A330"));
 
         jdbcTemplate.update(
             """
@@ -90,33 +115,32 @@ class CrewMemberControllerIntegrationTests {
                       "employeeNo": "TESTCREWWB01-UPDATED",
                       "nameZh": "测试机组更新",
                       "nameEn": "Test Crew Updated",
-                      "roleCode": "CAPTAIN",
-                      "rankCode": "CPT",
-                      "homeBase": "MFM",
-                      "aircraftQualification": "A320",
-                      "acclimatizationStatus": "NON_ACCLIMATIZED",
-                      "bodyClockTimezone": "UTC",
-                      "normalCommuteMinutes": 35,
-                      "externalEmploymentFlag": true,
-                      "availabilityStatus": "AVAILABLE",
-                      "status": "ACTIVE",
-                      "rollingFlightHours28d": 99.5,
-                      "rollingDutyHours28d": 88.5,
-                      "rollingDutyHours7d": 77.5,
-                      "rollingDutyHours14d": 66.5,
-                      "rollingFlightHours12m": 555.5,
-                      "latestActualFdpSource": "MANUAL_OVERRIDE"
+                      "homeBase": "MFM"
+                    }
+                    """))
+            .andExpect(status().isGone());
+
+        mockMvc.perform(put("/api/crew-members/" + crewId + "/profile")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewCode": "TESTCREWWB01",
+                      "employeeNo": "TESTCREWWB01-UPDATED",
+                      "nameZh": "测试机组更新",
+                      "nameEn": "Test Crew Updated",
+                      "homeBase": "MFM"
                     }
                     """))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.employeeNo").value("TESTCREWWB01-UPDATED"))
-            .andExpect(jsonPath("$.data.roleCode").value("CAPTAIN"))
-            .andExpect(jsonPath("$.data.rankCode").value("CPT"))
-            .andExpect(jsonPath("$.data.aircraftQualification").value("A320"))
-            .andExpect(jsonPath("$.data.acclimatizationStatus").value("NON_ACCLIMATIZED"))
-            .andExpect(jsonPath("$.data.bodyClockTimezone").value("UTC"))
-            .andExpect(jsonPath("$.data.normalCommuteMinutes").value(35))
-            .andExpect(jsonPath("$.data.externalEmploymentFlag").value(true))
+            .andExpect(jsonPath("$.data.roleCode").value("FIRST_OFFICER"))
+            .andExpect(jsonPath("$.data.rankCode").value("FO"))
+            .andExpect(jsonPath("$.data.aircraftQualification").value("A330"))
+            .andExpect(jsonPath("$.data.acclimatizationStatus").value("ACCLIMATIZED"))
+            .andExpect(jsonPath("$.data.bodyClockTimezone").value("Asia/Macau"))
+            .andExpect(jsonPath("$.data.normalCommuteMinutes").value(20))
+            .andExpect(jsonPath("$.data.externalEmploymentFlag").value(false))
             .andExpect(jsonPath("$.data.status").value("INACTIVE"))
             .andExpect(jsonPath("$.data.availabilityStatus").value("UNAVAILABLE"))
             .andExpect(jsonPath("$.data.rollingFlightHours28d").value(12.5))
@@ -124,6 +148,35 @@ class CrewMemberControllerIntegrationTests {
             .andExpect(jsonPath("$.data.rollingDutyHours7d").value(6.5))
             .andExpect(jsonPath("$.data.rollingDutyHours14d").value(9.5))
             .andExpect(jsonPath("$.data.rollingFlightHours12m").value(120.5))
+            .andExpect(jsonPath("$.data.latestActualFdpSource").value("SYSTEM_FEED"));
+
+        mockMvc.perform(put("/api/crew-members/" + crewId + "/profile-operational")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewCode": "TESTCREWWB01",
+                      "employeeNo": "TESTCREWWB01-ATOMIC",
+                      "nameZh": "测试机组原子更新",
+                      "nameEn": "Test Crew Atomic Update",
+                      "homeBase": "MFM",
+                      "roleCode": "CAPTAIN",
+                      "rankCode": "CAPT",
+                      "aircraftQualification": "A330",
+                      "acclimatizationStatus": "ACCLIMATIZED",
+                      "bodyClockTimezone": "Asia/Macau",
+                      "normalCommuteMinutes": 30,
+                      "externalEmploymentFlag": true
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.employeeNo").value("TESTCREWWB01-ATOMIC"))
+            .andExpect(jsonPath("$.data.roleCode").value("CAPTAIN"))
+            .andExpect(jsonPath("$.data.rankCode").value("CAPT"))
+            .andExpect(jsonPath("$.data.normalCommuteMinutes").value(30))
+            .andExpect(jsonPath("$.data.externalEmploymentFlag").value(true))
+            .andExpect(jsonPath("$.data.status").value("INACTIVE"))
+            .andExpect(jsonPath("$.data.availabilityStatus").value("UNAVAILABLE"))
             .andExpect(jsonPath("$.data.latestActualFdpSource").value("SYSTEM_FEED"));
     }
 

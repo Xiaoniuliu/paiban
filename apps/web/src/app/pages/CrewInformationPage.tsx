@@ -10,7 +10,9 @@ import {
 } from '../lib/time';
 import { apiErrorMessage } from '../lib/apiErrors';
 import type {
+  CrewCreateWritePayload,
   CrewMember,
+  CrewOperationalWritePayload,
   CrewProfileWritePayload,
   CrewQualification,
   DisplayTimezone,
@@ -43,8 +45,8 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
   const [error, setError] = useState('');
   const [loadWarning, setLoadWarning] = useState('');
   const canEdit = user.role === 'DISPATCHER' || user.role === 'ADMIN';
-  const crewProfileErrorFallback = `${t('crewProfileTab')}: ${t('saveFailed')}`;
-  const crewQualificationErrorFallback = `${t('crewQualificationTab')}: ${t('saveFailed')}`;
+  const crewProfileErrorFallback = t('crewProfileSaveFailed');
+  const crewQualificationErrorFallback = t('crewQualificationSaveFailed');
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -77,11 +79,7 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
     event.preventDefault();
     if (!editingCrew) return;
     setSaving(true);
-    const payload = crewProfileFormToPayload(editingCrew);
-    const action = editingCrew.id
-      ? api.updateCrewMember(editingCrew.id, payload)
-      : api.createCrewMember(payload);
-    action.then(() => {
+    saveCrewProfile(api, editingCrew).then(() => {
       setEditingCrew(null);
       refresh();
     }).catch((nextError: unknown) => setError(apiErrorMessage(nextError, crewProfileErrorFallback))).finally(() => setSaving(false));
@@ -208,7 +206,14 @@ export function CrewInformationPage({ api, language, timezone, t, user }: PagePr
   );
 }
 
-type CrewProfileForm = CrewProfileWritePayload & { id?: number };
+type CrewProfileForm = CrewProfileWritePayload & CrewOperationalWritePayload & { id?: number };
+
+async function saveCrewProfile(api: PageProps['api'], form: CrewProfileForm): Promise<CrewMember> {
+  if (form.id) {
+    return api.updateCrewProfileOperational(form.id, crewProfileFormToCreatePayload(form));
+  }
+  return api.createCrewMember(crewProfileFormToCreatePayload(form));
+}
 
 function defaultCrewForm(): CrewProfileForm {
   return {
@@ -245,20 +250,32 @@ function crewProfileFormFromCrew(crew: CrewMember): CrewProfileForm {
   };
 }
 
-function crewProfileFormToPayload(form: CrewProfileForm): CrewProfileWritePayload {
+function crewProfileFormToProfilePayload(form: CrewProfileForm): CrewProfileWritePayload {
   return {
     crewCode: form.crewCode,
     employeeNo: form.employeeNo,
     nameZh: form.nameZh,
     nameEn: form.nameEn,
+    homeBase: form.homeBase,
+  };
+}
+
+function crewProfileFormToOperationalPayload(form: CrewProfileForm): CrewOperationalWritePayload {
+  return {
     roleCode: form.roleCode,
     rankCode: form.rankCode,
-    homeBase: form.homeBase,
     aircraftQualification: form.aircraftQualification,
     acclimatizationStatus: form.acclimatizationStatus,
     bodyClockTimezone: form.bodyClockTimezone,
     normalCommuteMinutes: form.normalCommuteMinutes,
     externalEmploymentFlag: form.externalEmploymentFlag,
+  };
+}
+
+function crewProfileFormToCreatePayload(form: CrewProfileForm): CrewCreateWritePayload {
+  return {
+    ...crewProfileFormToProfilePayload(form),
+    ...crewProfileFormToOperationalPayload(form),
   };
 }
 
@@ -301,7 +318,7 @@ function CrewEditDialog({ open, value, saving, t, onChange, onClose, onSubmit }:
   onSubmit: (event: FormEvent) => void;
 }) {
   if (!value) return null;
-  const update = (key: keyof CrewProfileWritePayload, nextValue: string | number | boolean) => onChange({ ...value, [key]: nextValue });
+  const update = (key: keyof CrewProfileForm, nextValue: string | number | boolean) => onChange({ ...value, [key]: nextValue });
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="sm:max-w-3xl">

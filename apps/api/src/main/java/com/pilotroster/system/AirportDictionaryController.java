@@ -64,7 +64,7 @@ public class AirportDictionaryController {
         String iataCode = airport.getIataCode();
         if (flightRouteRepository.existsByDepartureAirportOrArrivalAirport(iataCode, iataCode)
             || aircraftRegistryRepository.existsByBaseAirport(iataCode)
-            || taskPlanItemRepository.existsByDepartureAirportOrArrivalAirport(iataCode, iataCode)) {
+            || taskPlanItemRepository.existsActiveByAirportCode(iataCode)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Airports referenced by routes, aircraft, or flight plans cannot be edited");
         }
         airport.setIataCode(input.getIataCode());
@@ -89,7 +89,7 @@ public class AirportDictionaryController {
         String iataCode = airport.getIataCode();
         if (flightRouteRepository.existsByDepartureAirportOrArrivalAirport(iataCode, iataCode)
             || aircraftRegistryRepository.existsByBaseAirport(iataCode)
-            || taskPlanItemRepository.existsByDepartureAirportOrArrivalAirport(iataCode, iataCode)) {
+            || taskPlanItemRepository.existsActiveByAirportCode(iataCode)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Airports referenced by routes, aircraft, or flight plans cannot be deleted");
         }
         try {

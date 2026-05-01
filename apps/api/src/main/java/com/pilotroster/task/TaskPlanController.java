@@ -1,11 +1,14 @@
 package com.pilotroster.task;
 
 import com.pilotroster.common.ApiResponse;
+import com.pilotroster.timeline.TimelineBlockRepository;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,15 +32,21 @@ public class TaskPlanController {
     private final TaskPlanImportBatchRepository batchRepository;
     private final TaskPlanItemRepository itemRepository;
     private final TaskAssignmentReadinessService taskAssignmentReadinessService;
+    private final TimelineBlockRepository timelineBlockRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     public TaskPlanController(
         TaskPlanImportBatchRepository batchRepository,
         TaskPlanItemRepository itemRepository,
-        TaskAssignmentReadinessService taskAssignmentReadinessService
+        TaskAssignmentReadinessService taskAssignmentReadinessService,
+        TimelineBlockRepository timelineBlockRepository,
+        JdbcTemplate jdbcTemplate
     ) {
         this.batchRepository = batchRepository;
         this.itemRepository = itemRepository;
         this.taskAssignmentReadinessService = taskAssignmentReadinessService;
+        this.timelineBlockRepository = timelineBlockRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @GetMapping("/batches")
@@ -123,11 +132,13 @@ public class TaskPlanController {
 
     @DeleteMapping("/items/{itemId}")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
+    @Transactional
     public ApiResponse<TaskPlanItem> deleteItem(@PathVariable Long itemId) {
         TaskPlanItem existing = itemRepository.findById(itemId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task plan item not found"));
         ensureDeletableThroughTaskMaintenance(existing);
         try {
+            cleanupDerivedTaskMaintenanceArtifacts(existing.getId());
             itemRepository.delete(existing);
             itemRepository.flush();
         } catch (DataIntegrityViolationException ex) {
@@ -163,6 +174,21 @@ public class TaskPlanController {
         if (!STATUS_UNASSIGNED.equals(status)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only unassigned flights can be deleted through task maintenance");
         }
+    }
+
+    private void cleanupDerivedTaskMaintenanceArtifacts(Long taskId) {
+        jdbcTemplate.update(
+            """
+            DELETE FROM violation_hit
+            WHERE task_id = ?
+               OR timeline_block_id IN (
+                   SELECT id FROM timeline_block WHERE task_plan_item_id = ?
+               )
+            """,
+            taskId,
+            taskId
+        );
+        timelineBlockRepository.deleteAllByTaskPlanItemId(taskId);
     }
 
     private void normalizeItem(TaskPlanItem item) {

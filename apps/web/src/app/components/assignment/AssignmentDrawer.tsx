@@ -48,6 +48,11 @@ export function AssignmentDrawer({
   const selectedFo = useMemo(() => (
     detail.foCandidates.find((candidate) => candidate.id === Number(foCrewId))
   ), [detail.foCandidates, foCrewId]);
+  const selectedAdditionalCandidates = useMemo(() => (
+    additionalAssignments
+      .map((assignment) => detail.additionalCandidates.find((candidate) => candidate.id === Number(assignment.crewId)))
+      .filter((candidate): candidate is AssignmentTaskDetail['additionalCandidates'][number] => Boolean(candidate))
+  ), [additionalAssignments, detail.additionalCandidates]);
   const assignedCrewIds = [
     picCrewId,
     foCrewId,
@@ -55,11 +60,14 @@ export function AssignmentDrawer({
   ].filter(Boolean);
   const hasDuplicateCrew = new Set(assignedCrewIds).size !== assignedCrewIds.length;
   const hasIncompleteAdditional = additionalAssignments.some((assignment) => assignment.crewId === '');
+  const hasIneligibleCrew = [selectedPic, selectedFo, ...selectedAdditionalCandidates]
+    .some((candidate) => candidate && !candidate.eligibleForAssignment);
   const canSave = detail.canEdit
     && picCrewId !== ''
     && foCrewId !== ''
     && !hasDuplicateCrew
     && !hasIncompleteAdditional
+    && !hasIneligibleCrew
     && !saving;
 
   const addAdditionalCrew = () => {
@@ -164,6 +172,7 @@ export function AssignmentDrawer({
                   disabled={!detail.canEdit}
                   placeholder={t('assignmentSelectPlaceholder')}
                   candidates={detail.picCandidates}
+                  t={t}
                   onChange={setPicCrewId}
                 />
                 <AssignmentSelect
@@ -173,6 +182,7 @@ export function AssignmentDrawer({
                   disabled={!detail.canEdit}
                   placeholder={t('assignmentSelectPlaceholder')}
                   candidates={detail.foCandidates}
+                  t={t}
                   onChange={setFoCrewId}
                 />
               </div>
@@ -215,6 +225,7 @@ export function AssignmentDrawer({
                           disabled={!detail.canEdit}
                           placeholder={t('assignmentSelectPlaceholder')}
                           candidates={detail.additionalCandidates}
+                          t={t}
                           onChange={(crewId) => updateAdditionalCrew(assignment.key, { crewId })}
                         />
                         <Button
@@ -235,6 +246,9 @@ export function AssignmentDrawer({
                 {hasDuplicateCrew && (
                   <div className="text-sm text-destructive">{t('assignmentDuplicateCrew')}</div>
                 )}
+                {hasIneligibleCrew && (
+                  <div className="text-sm text-destructive">{t('assignmentIneligibleCrewSelected')}</div>
+                )}
               </div>
 
               <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
@@ -250,7 +264,7 @@ export function AssignmentDrawer({
               {error && <div className="text-sm text-destructive">{error}</div>}
 
               <div className="flex justify-end gap-2 border-t border-border pt-4">
-                {detail.canEdit && detail.task.status === 'ASSIGNED_DRAFT' && (
+                {detail.canClearDraft && (
                   <Button
                     type="button"
                     variant="outline"
@@ -283,6 +297,7 @@ function AssignmentSelect({
   disabled,
   placeholder,
   candidates,
+  t,
   onChange,
 }: {
   id: string;
@@ -291,6 +306,7 @@ function AssignmentSelect({
   disabled: boolean;
   placeholder: string;
   candidates: AssignmentTaskDetail['picCandidates'];
+  t: (key: string) => string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -305,8 +321,8 @@ function AssignmentSelect({
       >
         <option value="">{placeholder}</option>
         {candidates.map((candidate) => (
-          <option key={candidate.id} value={candidate.id}>
-            {crewLabel(candidate)}
+          <option key={candidate.id} value={candidate.id} disabled={!candidate.eligibleForAssignment}>
+            {crewOptionLabel(candidate, t)}
           </option>
         ))}
       </select>
@@ -358,6 +374,18 @@ function AssignmentCrewLine({ label, value }: { label: string; value: string }) 
 
 function crewLabel(candidate: AssignmentTaskDetail['picCandidates'][number]) {
   return `${candidate.crewCode} ${candidate.nameEn}`;
+}
+
+function crewOptionLabel(candidate: AssignmentTaskDetail['picCandidates'][number], t: (key: string) => string) {
+  if (candidate.eligibleForAssignment) return crewLabel(candidate);
+  const reasons = candidate.eligibilityReasonCodes.map((code) => eligibilityReasonLabel(code, t)).join(', ');
+  return reasons ? `${crewLabel(candidate)} (${reasons})` : `${crewLabel(candidate)} (${t('assignmentIneligible')})`;
+}
+
+function eligibilityReasonLabel(code: string, t: (key: string) => string) {
+  const key = `assignmentEligibility${code}`;
+  const label = t(key);
+  return label === key ? code : label;
 }
 
 function initialAdditionalAssignments(detail: AssignmentTaskDetail): AdditionalCrewRow[] {

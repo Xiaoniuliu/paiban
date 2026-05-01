@@ -119,15 +119,21 @@ export interface CrewProfileWritePayload {
   employeeNo: string;
   nameZh: string;
   nameEn: string;
+  homeBase: string;
+}
+
+export interface CrewOperationalWritePayload {
   roleCode: string;
   rankCode: string;
-  homeBase: string;
   aircraftQualification: string;
   acclimatizationStatus: string;
   bodyClockTimezone: string;
   normalCommuteMinutes: number;
   externalEmploymentFlag: boolean;
 }
+
+export type CrewCreateWritePayload = CrewProfileWritePayload & CrewOperationalWritePayload;
+export type CrewProfileOperationalWritePayload = CrewCreateWritePayload;
 
 export interface TaskPlanImportBatch {
   id: number;
@@ -246,6 +252,8 @@ export interface AssignmentCrewCandidate {
   aircraftQualification: string;
   rollingFlightHours28d: number;
   rollingDutyHours28d: number;
+  eligibleForAssignment: boolean;
+  eligibilityReasonCodes: string[];
 }
 
 export interface DraftRosteringTask {
@@ -259,6 +267,9 @@ export interface DraftRosteringTask {
   taskStatus: string;
   requiredCrewPattern: string | null;
   canOpenAssignment: boolean;
+  canEditDraft: boolean;
+  canClearDraft: boolean;
+  blockedReason: string | null;
 }
 
 export interface DraftRosteringTaskList {
@@ -288,6 +299,12 @@ export interface AssignmentTimelineBlock {
   displayOrder: number;
 }
 
+export interface AssignmentRequirement {
+  assignmentRole: AssignmentRole;
+  requiredRoleCode: string | null;
+  requiredQualificationCode: string | null;
+}
+
 export interface AssignmentTaskDetail {
   task: TaskPlanItem;
   selectedPicCrewId: number | null;
@@ -297,6 +314,8 @@ export interface AssignmentTaskDetail {
   additionalCandidates: AssignmentCrewCandidate[];
   currentAssignments: AssignmentCrewAssignment[];
   timelineBlocks: AssignmentTimelineBlock[];
+  assignmentRequirements: AssignmentRequirement[];
+  canClearDraft: boolean;
   canEdit: boolean;
   readOnlyReason: string | null;
 }

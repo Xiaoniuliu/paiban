@@ -9,6 +9,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -48,9 +49,10 @@ public class CrewMemberController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
-    public ApiResponse<CrewMember> create(@RequestBody CrewProfileWriteRequest input) {
+    public ApiResponse<CrewMember> create(@RequestBody CrewCreateWriteRequest input) {
         CrewMember crew = new CrewMember();
         applyCrewProfileWrite(crew, input);
+        applyCrewOperationalWrite(crew, input);
         normalizeCrew(crew);
         try {
             return ApiResponse.ok(crewMemberRepository.save(crew));
@@ -62,6 +64,12 @@ public class CrewMemberController {
     @PutMapping("/{crewId}")
     @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
     public ApiResponse<CrewMember> update(@PathVariable Long crewId, @RequestBody CrewProfileWriteRequest input) {
+        throw new ResponseStatusException(HttpStatus.GONE, "Broad crew write contract retired; use profile and operational endpoints");
+    }
+
+    @PutMapping("/{crewId}/profile")
+    @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
+    public ApiResponse<CrewMember> updateProfile(@PathVariable Long crewId, @RequestBody CrewProfileWriteRequest input) {
         CrewMember crew = crew(crewId);
         applyCrewProfileWrite(crew, input);
         normalizeCrew(crew);
@@ -69,6 +77,37 @@ public class CrewMemberController {
             return ApiResponse.ok(crewMemberRepository.save(crew));
         } catch (DataIntegrityViolationException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Crew profile update violates uniqueness or master-data constraints", ex);
+        }
+    }
+
+    @PutMapping("/{crewId}/operational")
+    @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
+    public ApiResponse<CrewMember> updateOperational(@PathVariable Long crewId, @RequestBody CrewOperationalWriteRequest input) {
+        CrewMember crew = crew(crewId);
+        applyCrewOperationalWrite(crew, input);
+        normalizeCrew(crew);
+        try {
+            return ApiResponse.ok(crewMemberRepository.save(crew));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Crew operational update violates master-data constraints", ex);
+        }
+    }
+
+    @PutMapping("/{crewId}/profile-operational")
+    @PreAuthorize("hasAnyRole('DISPATCHER', 'ADMIN')")
+    @Transactional
+    public ApiResponse<CrewMember> updateProfileAndOperational(
+        @PathVariable Long crewId,
+        @RequestBody CrewCreateWriteRequest input
+    ) {
+        CrewMember crew = crew(crewId);
+        applyCrewProfileWrite(crew, input);
+        applyCrewOperationalWrite(crew, input);
+        normalizeCrew(crew);
+        try {
+            return ApiResponse.ok(crewMemberRepository.save(crew));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Crew update violates uniqueness or master-data constraints", ex);
         }
     }
 
@@ -206,9 +245,30 @@ public class CrewMemberController {
         crew.setEmployeeNo(input.employeeNo());
         crew.setNameZh(input.nameZh());
         crew.setNameEn(input.nameEn());
+        crew.setHomeBase(input.homeBase());
+    }
+
+    private void applyCrewProfileWrite(CrewMember crew, CrewCreateWriteRequest input) {
+        crew.setCrewCode(input.crewCode());
+        crew.setEmployeeNo(input.employeeNo());
+        crew.setNameZh(input.nameZh());
+        crew.setNameEn(input.nameEn());
+        crew.setHomeBase(input.homeBase());
+    }
+
+    private void applyCrewOperationalWrite(CrewMember crew, CrewOperationalWriteRequest input) {
         crew.setRoleCode(input.roleCode());
         crew.setRankCode(input.rankCode());
-        crew.setHomeBase(input.homeBase());
+        crew.setAircraftQualification(input.aircraftQualification());
+        crew.setAcclimatizationStatus(input.acclimatizationStatus());
+        crew.setBodyClockTimezone(input.bodyClockTimezone());
+        crew.setNormalCommuteMinutes(input.normalCommuteMinutes());
+        crew.setExternalEmploymentFlag(input.externalEmploymentFlag());
+    }
+
+    private void applyCrewOperationalWrite(CrewMember crew, CrewCreateWriteRequest input) {
+        crew.setRoleCode(input.roleCode());
+        crew.setRankCode(input.rankCode());
         crew.setAircraftQualification(input.aircraftQualification());
         crew.setAcclimatizationStatus(input.acclimatizationStatus());
         crew.setBodyClockTimezone(input.bodyClockTimezone());
@@ -218,6 +278,7 @@ public class CrewMemberController {
 
     private void normalizeCrew(CrewMember crew) {
         crew.setEmployeeNo(defaultString(crew.getEmployeeNo(), crew.getCrewCode()));
+        crew.setRoleCode(defaultString(crew.getRoleCode(), "FIRST_OFFICER"));
         crew.setRankCode(defaultString(crew.getRankCode(), crew.getRoleCode()));
         crew.setHomeBase(defaultString(crew.getHomeBase(), "MFM"));
         crew.setAircraftQualification(defaultString(crew.getAircraftQualification(), "A330"));
@@ -248,9 +309,29 @@ public class CrewMemberController {
         String employeeNo,
         String nameZh,
         String nameEn,
+        String homeBase
+    ) {
+    }
+
+    record CrewCreateWriteRequest(
+        String crewCode,
+        String employeeNo,
+        String nameZh,
+        String nameEn,
+        String homeBase,
         String roleCode,
         String rankCode,
-        String homeBase,
+        String aircraftQualification,
+        String acclimatizationStatus,
+        String bodyClockTimezone,
+        Integer normalCommuteMinutes,
+        Boolean externalEmploymentFlag
+    ) {
+    }
+
+    record CrewOperationalWriteRequest(
+        String roleCode,
+        String rankCode,
         String aircraftQualification,
         String acclimatizationStatus,
         String bodyClockTimezone,

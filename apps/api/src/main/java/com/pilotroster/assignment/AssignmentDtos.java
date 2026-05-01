@@ -33,7 +33,10 @@ public final class AssignmentDtos {
         Integer sectorCount,
         String taskStatus,
         String requiredCrewPattern,
-        boolean canOpenAssignment
+        boolean canOpenAssignment,
+        boolean canEditDraft,
+        boolean canClearDraft,
+        String blockedReason
     ) {
     }
 
@@ -51,7 +54,9 @@ public final class AssignmentDtos {
         String homeBase,
         String aircraftQualification,
         BigDecimal rollingFlightHours28d,
-        BigDecimal rollingDutyHours28d
+        BigDecimal rollingDutyHours28d,
+        boolean eligibleForAssignment,
+        List<String> eligibilityReasonCodes
     ) {
     }
 
@@ -87,8 +92,17 @@ public final class AssignmentDtos {
         List<AssignmentCrewCandidateResponse> additionalCandidates,
         List<AssignmentCrewAssignmentResponse> currentAssignments,
         List<AssignmentTimelineBlockResponse> timelineBlocks,
+        List<AssignmentRequirementResponse> assignmentRequirements,
+        boolean canClearDraft,
         boolean canEdit,
         String readOnlyReason
+    ) {
+    }
+
+    public record AssignmentRequirementResponse(
+        String assignmentRole,
+        String requiredRoleCode,
+        String requiredQualificationCode
     ) {
     }
 

@@ -57,6 +57,15 @@ class AssignmentIntegrationTests {
             WHERE tpi.task_code = 'TESTDRT01'
             """
         );
+        jdbcTemplate.update(
+            """
+            DELETE tb
+            FROM timeline_block tb
+            JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id
+            WHERE tpi.task_code = 'TESTCXL01'
+            """
+        );
+        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code = 'TESTCXL01'");
         jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code = 'TESTDRT01'");
         jdbcTemplate.update("DELETE FROM task_plan_import_batch WHERE batch_no = 'TEST-DRAFT-QUEUE-01'");
         jdbcTemplate.update(
@@ -83,6 +92,7 @@ class AssignmentIntegrationTests {
             WHERE tpi.task_code = 'NX8810'
             """
         );
+        jdbcTemplate.update("DELETE FROM timeline_block WHERE display_label = 'TEST-ASSIGNMENT-CONFLICT'");
         jdbcTemplate.update(
             """
             DELETE tpi
@@ -93,6 +103,7 @@ class AssignmentIntegrationTests {
             """
         );
         jdbcTemplate.update("UPDATE task_plan_item SET status = 'UNASSIGNED' WHERE task_code = 'NX8810'");
+        restoreCrewSeed();
         jdbcTemplate.update("DELETE FROM task_plan_import_batch WHERE batch_no = 'TEST-ASSIGNMENT-SEED-01'");
     }
 
@@ -160,6 +171,8 @@ class AssignmentIntegrationTests {
             .andExpect(jsonPath("$.data.task.status").value("UNASSIGNED"))
             .andExpect(jsonPath("$.data.picCandidates.length()").value(greaterThanOrEqualTo(1)))
             .andExpect(jsonPath("$.data.foCandidates.length()").value(greaterThanOrEqualTo(1)))
+            .andExpect(jsonPath("$.data.assignmentRequirements.length()").value(2))
+            .andExpect(jsonPath("$.data.canClearDraft").value(false))
             .andExpect(jsonPath("$.data.canEdit").value(true));
 
         mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
@@ -233,7 +246,9 @@ class AssignmentIntegrationTests {
             .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].taskStatus".formatted(taskId)).value(hasItem("UNASSIGNED")))
             .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].departureAirport".formatted(taskId)).value(hasItem("MFM")))
             .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].arrivalAirport".formatted(taskId)).value(hasItem("TPE")))
-            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canOpenAssignment".formatted(taskId)).value(hasItem(true)));
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canOpenAssignment".formatted(taskId)).value(hasItem(true)))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canEditDraft".formatted(taskId)).value(hasItem(true)))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canClearDraft".formatted(taskId)).value(hasItem(false)));
 
         mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
                 .header("Authorization", "Bearer " + token)
@@ -248,7 +263,8 @@ class AssignmentIntegrationTests {
 
         mockMvc.perform(get("/api/assignments/draft-rostering/tasks").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].taskStatus".formatted(taskId)).value(hasItem("ASSIGNED_DRAFT")));
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].taskStatus".formatted(taskId)).value(hasItem("ASSIGNED_DRAFT")))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canClearDraft".formatted(taskId)).value(hasItem(true)));
     }
 
     @Test
@@ -340,7 +356,7 @@ class AssignmentIntegrationTests {
                       "foCrewId": %d
                     }
                     """.formatted(foCrewId, picCrewId)))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isConflict());
 
         mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
                 .header("Authorization", "Bearer " + token)
@@ -352,6 +368,73 @@ class AssignmentIntegrationTests {
                     }
                     """.formatted(foCrewId)))
             .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void dispatcherCannotSaveDraftWithBackendIneligibleCrew() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long taskId = taskId("NX8810");
+        Long picCrewId = crewId("CPT001");
+        Long foCrewId = crewId("FO001");
+
+        jdbcTemplate.update("UPDATE crew_member SET status = 'INACTIVE' WHERE crew_code = 'CPT001'");
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftPayload(picCrewId, foCrewId)))
+            .andExpect(status().isConflict());
+        mockMvc.perform(get("/api/assignments/tasks/" + taskId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.picCandidates[?(@.id == %d)].eligibleForAssignment".formatted(picCrewId)).value(hasItem(false)))
+            .andExpect(jsonPath("$.data.picCandidates[?(@.id == %d)].eligibilityReasonCodes[*]".formatted(picCrewId)).value(hasItem("CREW_INACTIVE")));
+
+        restoreCrewSeed();
+        jdbcTemplate.update("UPDATE crew_member SET availability_status = 'UNAVAILABLE' WHERE crew_code = 'CPT001'");
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftPayload(picCrewId, foCrewId)))
+            .andExpect(status().isConflict());
+
+        restoreCrewSeed();
+        jdbcTemplate.update("UPDATE crew_member SET aircraft_qualification = 'A320' WHERE crew_code = 'CPT001'");
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftPayload(picCrewId, foCrewId)))
+            .andExpect(status().isConflict());
+
+        restoreCrewSeed();
+        insertStatusConflict(picCrewId, taskId);
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftPayload(picCrewId, foCrewId)))
+            .andExpect(status().isConflict());
+        mockMvc.perform(get("/api/assignments/tasks/" + taskId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.picCandidates[?(@.id == %d)].eligibilityReasonCodes[*]".formatted(picCrewId)).value(hasItem("TIME_CONFLICT")));
+    }
+
+    @Test
+    void cancelledAssignmentTimelineBlocksDoNotBlockDraftReassignment() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long taskId = taskId("NX8810");
+        Long picCrewId = crewId("CPT001");
+        Long foCrewId = crewId("FO001");
+
+        insertCancelledAssignmentConflict(picCrewId, taskId);
+
+        mockMvc.perform(get("/api/assignments/tasks/" + taskId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.picCandidates[?(@.id == %d)].eligibleForAssignment".formatted(picCrewId)).value(hasItem(true)));
+
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftPayload(picCrewId, foCrewId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.task.status").value("ASSIGNED_DRAFT"));
     }
 
     @Test
@@ -460,6 +543,143 @@ class AssignmentIntegrationTests {
 
     private Long crewId(String crewCode) {
         return jdbcTemplate.queryForObject("SELECT id FROM crew_member WHERE crew_code = ?", Long.class, crewCode);
+    }
+
+    private void restoreCrewSeed() {
+        jdbcTemplate.update(
+            """
+            UPDATE crew_member
+            SET status = 'ACTIVE',
+                availability_status = 'AVAILABLE',
+                aircraft_qualification = 'A330'
+            WHERE crew_code IN ('CPT001', 'FO001', 'FO002')
+            """
+        );
+    }
+
+    private String draftPayload(Long picCrewId, Long foCrewId) {
+        return """
+            {
+              "picCrewId": %d,
+              "foCrewId": %d
+            }
+            """.formatted(picCrewId, foCrewId);
+    }
+
+    private void insertStatusConflict(Long crewId, Long taskId) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO timeline_block (
+              roster_version_id,
+              crew_member_id,
+              task_plan_item_id,
+              block_type,
+              start_utc,
+              end_utc,
+              display_label,
+              status,
+              assignment_role,
+              display_order
+            )
+            SELECT
+              rv.id,
+              ?,
+              NULL,
+              'REST',
+              tpi.scheduled_start_utc,
+              tpi.scheduled_end_utc,
+              'TEST-ASSIGNMENT-CONFLICT',
+              'PLANNED',
+              'STATUS',
+              0
+            FROM roster_version rv
+            JOIN task_plan_item tpi ON tpi.id = ?
+            WHERE rv.status = 'DRAFT'
+            ORDER BY rv.id DESC
+            LIMIT 1
+            """,
+            crewId,
+            taskId
+        );
+    }
+
+    private void insertCancelledAssignmentConflict(Long crewId, Long taskId) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO task_plan_item (
+              batch_id,
+              task_code,
+              task_type,
+              title_zh,
+              title_en,
+              departure_airport,
+              arrival_airport,
+              scheduled_start_utc,
+              scheduled_end_utc,
+              sector_count,
+              aircraft_type,
+              aircraft_no,
+              required_crew_pattern,
+              status,
+              source_status
+            )
+            SELECT
+              batch_id,
+              'TESTCXL01',
+              task_type,
+              '取消态冲突测试航班',
+              'Cancelled conflict test flight',
+              departure_airport,
+              arrival_airport,
+              scheduled_start_utc,
+              scheduled_end_utc,
+              sector_count,
+              aircraft_type,
+              aircraft_no,
+              required_crew_pattern,
+              'CANCELLED',
+              source_status
+            FROM task_plan_item
+            WHERE id = ?
+            """,
+            taskId
+        );
+        Long cancelledTaskId = taskId("TESTCXL01");
+        jdbcTemplate.update(
+            """
+            INSERT INTO timeline_block (
+              roster_version_id,
+              crew_member_id,
+              task_plan_item_id,
+              block_type,
+              start_utc,
+              end_utc,
+              display_label,
+              status,
+              assignment_role,
+              display_order
+            )
+            SELECT
+              rv.id,
+              ?,
+              ?,
+              'FLIGHT',
+              tpi.scheduled_start_utc,
+              tpi.scheduled_end_utc,
+              'TEST-CANCELLED-ASSIGNMENT-CONFLICT',
+              'CANCELLED',
+              'PIC',
+              0
+            FROM roster_version rv
+            JOIN task_plan_item tpi ON tpi.id = ?
+            WHERE rv.status = 'DRAFT'
+            ORDER BY rv.id DESC
+            LIMIT 1
+            """,
+            crewId,
+            cancelledTaskId,
+            cancelledTaskId
+        );
     }
 
     private Long createArchiveCase(Long taskId) {

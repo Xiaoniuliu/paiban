@@ -55,11 +55,11 @@ export const dashboardRoutes: AppRoute[] = [
 
 export const crewStatusRoutes: AppRoute[] = [
   route('crew-status', '/crew-status/crew-list', 'crew-list', crewStatusPage, crewReadRoles),
-  route('crew-status', '/crew-status/crew-profile', 'crew-profile', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
-  route('crew-status', '/crew-status/licenses', 'crew-licenses', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
-  route('crew-status', '/crew-status/flight-hours', 'crew-flight-hours', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
-  route('crew-status', '/crew-status/duty-calendar', 'crew-duty-calendar', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
-  route('crew-status', '/crew-status/status-timeline', 'crew-status-timeline', crewStatusPage, ['DISPATCHER', 'OPS_MANAGER', 'ADMIN', 'PILOT']),
+  route('crew-status', '/crew-status/crew-profile', 'crew-profile', crewStatusPage, crewReadRoles),
+  route('crew-status', '/crew-status/licenses', 'crew-licenses', crewStatusPage, crewReadRoles),
+  route('crew-status', '/crew-status/flight-hours', 'crew-flight-hours', crewStatusPage, crewReadRoles),
+  route('crew-status', '/crew-status/duty-calendar', 'crew-duty-calendar', crewStatusPage, crewReadRoles),
+  route('crew-status', '/crew-status/status-timeline', 'crew-status-timeline', crewStatusPage, operationsRoles),
 ];
 
 export const flightOperationsRoutes: AppRoute[] = [

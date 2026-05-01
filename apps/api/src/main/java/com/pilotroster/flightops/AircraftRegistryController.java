@@ -53,7 +53,7 @@ public class AircraftRegistryController {
     public ApiResponse<AircraftRegistry> updateAircraft(@PathVariable Long aircraftId, @RequestBody AircraftRegistry input) {
         AircraftRegistry aircraft = aircraftRegistryRepository.findById(aircraftId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Aircraft not found"));
-        if (taskPlanItemRepository.existsByAircraftNoOrAircraftType(aircraft.getAircraftNo(), aircraft.getAircraftType())) {
+        if (taskPlanItemRepository.existsActiveByAircraftNoOrType(aircraft.getAircraftNo(), aircraft.getAircraftType())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Aircraft referenced by flight plans cannot be edited");
         }
         aircraft.setAircraftNo(input.getAircraftNo());
@@ -75,7 +75,7 @@ public class AircraftRegistryController {
     public ApiResponse<AircraftRegistry> deleteAircraft(@PathVariable Long aircraftId) {
         AircraftRegistry aircraft = aircraftRegistryRepository.findById(aircraftId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Aircraft not found"));
-        if (taskPlanItemRepository.existsByAircraftNoOrAircraftType(aircraft.getAircraftNo(), aircraft.getAircraftType())) {
+        if (taskPlanItemRepository.existsActiveByAircraftNoOrType(aircraft.getAircraftNo(), aircraft.getAircraftType())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Aircraft referenced by flight plans cannot be deleted");
         }
         try {

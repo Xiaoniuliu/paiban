@@ -53,7 +53,7 @@ public class FlightRouteController {
     public ApiResponse<FlightRoute> updateRoute(@PathVariable Long routeId, @RequestBody FlightRoute input) {
         FlightRoute route = flightRouteRepository.findById(routeId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found"));
-        if (taskPlanItemRepository.existsByDepartureAirportAndArrivalAirport(route.getDepartureAirport(), route.getArrivalAirport())) {
+        if (taskPlanItemRepository.existsActiveByRoutePair(route.getDepartureAirport(), route.getArrivalAirport())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Routes referenced by flight plans cannot be edited");
         }
         route.setRouteCode(input.getRouteCode());
@@ -75,7 +75,7 @@ public class FlightRouteController {
     public ApiResponse<FlightRoute> deleteRoute(@PathVariable Long routeId) {
         FlightRoute route = flightRouteRepository.findById(routeId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found"));
-        if (taskPlanItemRepository.existsByDepartureAirportAndArrivalAirport(route.getDepartureAirport(), route.getArrivalAirport())) {
+        if (taskPlanItemRepository.existsActiveByRoutePair(route.getDepartureAirport(), route.getArrivalAirport())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Routes referenced by flight plans cannot be deleted");
         }
         try {

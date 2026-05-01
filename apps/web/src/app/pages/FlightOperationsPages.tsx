@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { Plane } from 'lucide-react';
 import { viewTitleKey } from '../i18n';
 import type {
@@ -6,7 +5,6 @@ import type {
   AirportDictionary,
   FlightRoute,
   Language,
-  ViewId,
 } from '../types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { PageHeader } from '../components/framework/PageShell';
@@ -22,8 +20,9 @@ import {
 import { useFlightOperationsManagement } from './useFlightOperationsManagement';
 
 export function FlightOperationsPage({ activeView, api, language, t, user }: PageProps) {
-  const [activeTab, setActiveTab] = useState(() => flightOperationsInitialTab(activeView));
   const {
+    activeTab,
+    canEdit,
     airports,
     routes,
     aircraftRows,
@@ -39,6 +38,7 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
     loading,
     saving,
     error,
+    actionError,
     loadWarning,
     saveRoute,
     saveAirport,
@@ -52,13 +52,8 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
     startAddRoute,
     startAddAirport,
     startAddAircraft,
-  } = useFlightOperationsManagement(api, t);
-
-  useEffect(() => {
-    setActiveTab(flightOperationsInitialTab(activeView));
-  }, [activeView]);
-
-  const canEdit = user.role === 'DISPATCHER' || user.role === 'ADMIN';
+    setActiveTab,
+  } = useFlightOperationsManagement(api, t, activeView, user.role);
 
   return (
     <div className="space-y-4">
@@ -67,6 +62,11 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
         title={t(viewTitleKey[activeView])}
         description={t('operationsDataDescription')}
       />
+      {actionError && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          {actionError}
+        </div>
+      )}
       <OperationsDataPanel
         airports={airports}
         airportByCode={airportByCode}
@@ -87,22 +87,13 @@ export function FlightOperationsPage({ activeView, api, language, t, user }: Pag
         onTabChange={setActiveTab}
         onAddRoute={startAddRoute}
         onEditRoute={setEditingRoute}
-        onDeleteRoute={(route) => {
-          if (!globalThis.confirm(t('deleteRouteConfirm'))) return;
-          deleteRoute(route.id);
-        }}
+        onDeleteRoute={deleteRoute}
         onAddAirport={startAddAirport}
         onEditAirport={setEditingAirport}
-        onDeleteAirport={(airport) => {
-          if (!globalThis.confirm(t('deleteAirportConfirm'))) return;
-          deleteAirport(airport.id);
-        }}
+        onDeleteAirport={deleteAirport}
         onAddAircraft={startAddAircraft}
         onEditAircraft={setEditingAircraft}
-        onDeleteAircraft={(aircraft) => {
-          if (!globalThis.confirm(t('deleteAircraftConfirm'))) return;
-          deleteAircraft(aircraft.id);
-        }}
+        onDeleteAircraft={deleteAircraft}
       />
       <FlightRouteEditDialog
         open={editingRoute !== null}
@@ -213,11 +204,4 @@ function OperationsDataPanel({
       </Tabs>
     </div>
   );
-}
-
-function flightOperationsInitialTab(activeView: ViewId) {
-  if (activeView === 'route-management') return 'routes';
-  if (activeView === 'aircraft-registry') return 'aircraft';
-  if (activeView === 'airport-timezone') return 'airports';
-  return 'routes';
 }

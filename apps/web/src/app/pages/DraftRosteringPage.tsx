@@ -126,6 +126,7 @@ export function DraftRosteringPage({ activeView, api, t }: PageProps) {
                           size="sm"
                           variant={task.taskStatus === 'UNASSIGNED' ? 'default' : 'outline'}
                           disabled={!task.canOpenAssignment}
+                          title={task.blockedReason ? assignmentBlockedReason(task.blockedReason, t) : undefined}
                           onClick={() => openAssignment(task.taskId)}
                         >
                           {task.taskStatus === 'ASSIGNED_DRAFT' ? t('assignmentAdjust') : t('assignmentOpen')}
@@ -164,4 +165,10 @@ function taskStatusLabel(status: string, t: (key: string) => string) {
   const key = `taskStatus${status}`;
   const label = t(key);
   return label === key ? status : label;
+}
+
+function assignmentBlockedReason(reason: string, t: (key: string) => string) {
+  const key = `assignmentReadOnlyReason${reason}`;
+  const label = t(key);
+  return label === key ? reason : label;
 }

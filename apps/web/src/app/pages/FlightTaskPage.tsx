@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Plane } from 'lucide-react';
 import { viewTitleKey } from '../i18n';
+import { apiErrorMessage } from '../lib/apiErrors';
 import type { AircraftRegistry, FlightRoute, TaskAssignmentReadiness, TaskPlanImportBatch, TaskPlanItem } from '../types';
 import { Button } from '../components/ui/button';
 import { PageHeader } from '../components/framework/PageShell';
@@ -20,13 +21,14 @@ export function FlightTaskPage({ activeView, api, timezone, t, user }: PageProps
   const [viewingTask, setViewingTask] = useState<FlightTaskModule.TaskPlanItemForm | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [loadWarning, setLoadWarning] = useState('');
   const canEdit = user.role === 'DISPATCHER' || user.role === 'ADMIN';
 
   const refresh = useCallback(() => {
     setLoading(true);
-    setError('');
+    setLoadError('');
     setLoadWarning('');
     Promise.allSettled([
       api.taskPlanBatches(),
@@ -41,7 +43,7 @@ export function FlightTaskPage({ activeView, api, timezone, t, user }: PageProps
           if (routeResult.status === 'fulfilled') setRoutes(routeResult.value);
           if (aircraftResult.status === 'fulfilled') setAircraftRows(aircraftResult.value);
           if (readinessResult.status === 'fulfilled') setAssignmentReadiness(readinessResult.value);
-          setError(t('taskPlanLoadError'));
+          setLoadError(t('taskPlanLoadError'));
           return;
         }
 
@@ -113,6 +115,7 @@ export function FlightTaskPage({ activeView, api, timezone, t, user }: PageProps
     event.preventDefault();
     if (!editingTask) return;
     setSaving(true);
+    setActionError('');
     const payload = FlightTaskModule.normalizeTaskPlanItemPayload(
       editingTask,
       timezone,
@@ -122,12 +125,15 @@ export function FlightTaskPage({ activeView, api, timezone, t, user }: PageProps
     action.then(() => {
       setEditingTask(null);
       refresh();
-    }).catch(() => setError(t('saveFailed'))).finally(() => setSaving(false));
+    }).catch((nextError: unknown) => setActionError(apiErrorMessage(nextError, t('saveFailed')))).finally(() => setSaving(false));
   };
 
   const deleteTask = (item: TaskPlanItem) => {
     if (!globalThis.confirm(t('deleteFlightConfirm'))) return;
-    api.cancelTaskPlanItem(item.id).then(refresh).catch(() => setError(t('saveFailed')));
+    setActionError('');
+    api.cancelTaskPlanItem(item.id).then(refresh).catch((nextError: unknown) => {
+      setActionError(apiErrorMessage(nextError, t('saveFailed')));
+    });
   };
 
   return (
@@ -142,12 +148,17 @@ export function FlightTaskPage({ activeView, api, timezone, t, user }: PageProps
           <a href="/rostering-workbench/draft-rostering">{t('openDraftRostering')}</a>
         </Button>
       </div>
+      {actionError && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          {actionError}
+        </div>
+      )}
       <FlightTaskModule.FlightPlanOperationsPanel
         batches={batches}
         items={filteredItems}
         allItems={items}
         loading={loading}
-        error={error}
+        error={loadError}
         loadWarning={loadWarning}
         query={query}
         statusFilter={statusFilter}
@@ -160,9 +171,6 @@ export function FlightTaskPage({ activeView, api, timezone, t, user }: PageProps
         onEditTask={(item) => setEditingTask(FlightTaskModule.taskPlanItemToForm(item, timezone))}
         onViewTask={(item) => setViewingTask(FlightTaskModule.taskPlanItemToForm(item, timezone))}
         onDeleteTask={deleteTask}
-        onImportBatch={() => {}}
-        onSwitchBatch={() => {}}
-        onViewBatch={() => {}}
       />
       <FlightTaskModule.TaskPlanItemEditDialog
         open={editingTask !== null}

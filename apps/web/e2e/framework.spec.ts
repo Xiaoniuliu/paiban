@@ -105,49 +105,208 @@ test('flight operations and formal submenu framework are visible', async ({ page
   await expect(page.getByRole('heading', { level: 1, name: '机场与时区' })).toBeVisible();
 });
 
-test('UAT-GA-001 to UAT-GA-010 dispatcher archives seed flight from the gantt drawer', async ({ page }) => {
+test('dispatcher timeline is display-only and does not open business drawers', async ({ page }) => {
   await login(page);
-  await page.locator('select').filter({ has: page.locator('option[value="en-US"]') }).first().selectOption('en-US');
-  await page.getByLabel('Display Timezone').selectOption('UTC+8');
+
+  const diagnostics = collectBrowserDiagnostics(page);
+
   await page.goto('/rostering-workbench/flight-view');
-  await expect(page.getByRole('heading', { level: 1, name: 'Flight View' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '航班视图' })).toBeVisible();
   await expect(page.locator('.gantt-timeline-canvas .vis-current-time')).toBeVisible();
-  await expect(page.getByTestId('timeline-status-legend')).toContainText('Unarchived');
-  await expect(page.getByTestId('timeline-next-window')).toHaveCount(0);
+  await expect(page.getByTestId('timeline-status-legend')).toBeVisible();
   await expect(page.getByTestId('gantt-timeline')).toBeVisible();
-  await clickSeedTimelineBlock(page);
-  await expect(page.getByTestId('archive-drawer')).toBeVisible();
-  await expect(page.getByTestId('archive-case-status')).toContainText('Unarchived');
-  await expect(page.locator('[data-testid^="archive-crew-row-"]')).toHaveCount(2);
-
-  await page.getByTestId('archive-form-flying-hour').fill('255');
-  await page.getByTestId('archive-form-save').click();
-  await expect(page.getByTestId('archive-case-status')).toContainText('Partially Archived');
-
-  await page.locator('[data-testid^="archive-crew-row-"]').nth(1).click();
-  await page.getByTestId('archive-form-no-flying-hour').check();
-  await page.getByTestId('archive-form-save').click();
-  await expect(page.getByTestId('archive-case-status')).toContainText('Archived');
-
-  await page.getByRole('button', { name: 'Close' }).first().click();
-  await page.getByLabel('Display Timezone').selectOption('UTC');
-  await expect(page.getByText(/\(UTC\)/).first()).toBeVisible();
+  await clickFirstTimelineBlockIfPresent(page);
+  await expect(page.getByTestId('archive-drawer')).toHaveCount(0);
+  await expect(page.getByTestId('assignment-drawer')).toHaveCount(0);
+  expect(diagnostics.consoleErrors).toEqual([]);
+  expect(diagnostics.pageErrors).toEqual([]);
+  expect(diagnostics.requestFailures).toEqual([]);
+  expect(diagnostics.unexpectedResponses).toEqual([]);
 });
 
-async function clickSeedTimelineBlock(page: Page) {
+test('flight task protected actions keep downstream rows read-only without F12 errors', async ({ page }) => {
+  await login(page);
+  const diagnostics = collectBrowserDiagnostics(page);
+
+  await page.goto('/flight-operations/flight-plan');
+  await expect(page.getByRole('heading', { level: 1, name: '航班计划' })).toBeVisible();
+
+  const publishedRow = page.locator('tbody tr').filter({ hasText: 'NX8801' }).first();
+  await expect(publishedRow).toContainText('已发布');
+  await expect(publishedRow.getByRole('button', { name: '查看详情' })).toBeVisible();
+  await expect(publishedRow.getByRole('button', { name: '删除航班' })).toHaveCount(0);
+  await expect(publishedRow.getByRole('button', { name: '编辑' })).toHaveCount(0);
+
+  await publishedRow.getByRole('button', { name: '查看详情' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('button', { name: '保存' })).toHaveCount(0);
+
+  expect(diagnostics.consoleErrors).toEqual([]);
+  expect(diagnostics.pageErrors).toEqual([]);
+  expect(diagnostics.requestFailures).toEqual([]);
+  expect(diagnostics.unexpectedResponses).toEqual([]);
+});
+
+test('flight task protected delete surfaces expected 409 domain feedback', async ({ page }) => {
+  await login(page);
+  const diagnostics = collectBrowserDiagnostics(page, (response) => {
+    return response.status() === 409
+      && response.request().method() === 'DELETE'
+      && response.url().includes('/api/task-plan/items/');
+  }, (message) => message.includes('409 (Conflict)'));
+  const expectedConflicts: string[] = [];
+  let protectedTaskId: number | null = null;
+
+  await page.route('**/api/task-plan/items', async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    const nextPayload = {
+      ...payload,
+      data: payload.data.map((item: { id: number; taskCode: string; status: string }) => {
+        if (item.taskCode !== 'NX9001') return item;
+        protectedTaskId = item.id;
+        return { ...item, status: 'UNASSIGNED' };
+      }),
+    };
+    await route.fulfill({ response, json: nextPayload });
+  });
+  page.on('response', (response) => {
+    if (protectedTaskId !== null
+      && response.status() === 409
+      && response.request().method() === 'DELETE'
+      && response.url().endsWith(`/api/task-plan/items/${protectedTaskId}`)) {
+      expectedConflicts.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    }
+  });
+
+  await page.goto('/flight-operations/flight-plan');
+  await expect(page.getByRole('heading', { level: 1, name: '航班计划' })).toBeVisible();
+  await page.getByPlaceholder('搜索航班号、航线、任务类型或状态').fill('NX9001');
+
+  const protectedRow = page.locator('tbody tr').filter({ hasText: 'NX9001' }).first();
+  await expect(protectedRow.getByRole('button', { name: '删除航班' })).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept());
+  await protectedRow.getByRole('button', { name: '删除航班' }).click();
+
+  await expect(page.getByText('Flights already entered downstream flow cannot be deleted')).toBeVisible();
+  expect(expectedConflicts.length).toBeGreaterThan(0);
+  expect(diagnostics.consoleErrors).toEqual([]);
+  expect(diagnostics.pageErrors).toEqual([]);
+  expect(diagnostics.requestFailures).toEqual([]);
+  expect(diagnostics.unexpectedResponses).toEqual([]);
+});
+
+test('flight operations protected mutations keep table state and domain reason visible', async ({ page }) => {
+  await login(page);
+  const diagnostics = collectBrowserDiagnostics(page);
+
+  await page.goto('/flight-operations/routes');
+  await expect(page.getByRole('heading', { level: 1, name: '航线管理' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '航线资料' })).toBeVisible();
+
+  const protectedRouteRow = page.locator('tbody tr').filter({ hasText: 'MFM-TPE' }).first();
+  await expect(protectedRouteRow).toBeVisible();
+  await expect(protectedRouteRow.getByRole('button', { name: '编辑' })).toBeDisabled();
+  await expect(protectedRouteRow.getByRole('button', { name: '删除' })).toBeDisabled();
+  await expect(protectedRouteRow.locator('span[title*="引用"]').first()).toBeVisible();
+  await expect(page.getByText('MFM-TPE')).toBeVisible();
+
+  expect(diagnostics.consoleErrors).toEqual([]);
+  expect(diagnostics.pageErrors).toEqual([]);
+  expect(diagnostics.requestFailures).toEqual([]);
+  expect(diagnostics.unexpectedResponses).toEqual([]);
+});
+
+test('draft rostering protected flows preserve read-only open and 409 domain feedback', async ({ page, browser }) => {
+  const manager = await browser.newPage({ baseURL: 'http://127.0.0.1:5180' });
+  await login(manager, 'manager01');
+  await manager.waitForTimeout(300);
+  const managerDiagnostics = collectBrowserDiagnostics(manager);
+
+  await manager.goto('/rostering-workbench/draft-rostering');
+  await expect(manager.getByRole('heading', { level: 1, name: '草稿排班' })).toBeVisible();
+  const managerRow = manager.locator('tbody tr').filter({ hasText: 'NX9001' }).first();
+  await managerRow.getByRole('button', { name: '排班' }).click();
+  await expect(manager.getByTestId('assignment-drawer')).toBeVisible();
+  await expect(manager.getByText('当前任务不可在排班抽屉编辑。')).toBeVisible();
+  await expect(manager.getByText('该航班已进入飞后归档，请从飞后归档处理。')).toBeVisible();
+  await expect(manager.getByTestId('assignment-save')).toBeDisabled();
+  expect(managerDiagnostics.consoleErrors).toEqual([]);
+  expect(managerDiagnostics.pageErrors).toEqual([]);
+  expect(managerDiagnostics.requestFailures).toEqual([]);
+  expect(managerDiagnostics.unexpectedResponses).toEqual([]);
+  await manager.close();
+
+  await login(page);
+  await page.waitForTimeout(300);
+  const dispatcherDiagnostics = collectBrowserDiagnostics(page, (response) => {
+    return response.status() === 409
+      && response.request().method() === 'PUT'
+      && response.url().includes('/api/assignments/tasks/')
+      && response.url().endsWith('/draft');
+  }, (message) => message.includes('409 (Conflict)'));
+  const expectedConflicts: string[] = [];
+
+  await page.route('**/api/assignments/tasks/*', async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    const makeEligible = (candidate: { eligibleForAssignment?: boolean; eligibilityReasonCodes?: string[] }) => ({
+      ...candidate,
+      eligibleForAssignment: true,
+      eligibilityReasonCodes: [],
+    });
+    await route.fulfill({
+      response,
+      json: {
+        ...payload,
+        data: {
+          ...payload.data,
+          canEdit: true,
+          canClearDraft: false,
+          readOnlyReason: null,
+          picCandidates: payload.data.picCandidates.map(makeEligible),
+          foCandidates: payload.data.foCandidates.map(makeEligible),
+          additionalCandidates: payload.data.additionalCandidates.map(makeEligible),
+        },
+      },
+    });
+  });
+  page.on('response', (response) => {
+    if (response.status() === 409
+      && response.request().method() === 'PUT'
+      && response.url().includes('/api/assignments/tasks/')
+      && response.url().endsWith('/draft')) {
+      expectedConflicts.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    }
+  });
+
+  await page.goto('/rostering-workbench/draft-rostering');
+  await expect(page.getByRole('heading', { level: 1, name: '草稿排班' })).toBeVisible();
+  const dispatcherRow = page.locator('tbody tr').filter({ hasText: 'NX9001' }).first();
+  await dispatcherRow.getByRole('button', { name: '排班' }).click();
+  await expect(page.getByTestId('assignment-drawer')).toBeVisible();
+  await expect(page.getByTestId('assignment-save')).toBeEnabled();
+  await page.getByTestId('assignment-save').click();
+
+  await expect(page.getByText('Archived flights must be handled from Archive Entry')).toBeVisible();
+  expect(expectedConflicts.length).toBeGreaterThan(0);
+  expect(dispatcherDiagnostics.consoleErrors).toEqual([]);
+  expect(dispatcherDiagnostics.pageErrors).toEqual([]);
+  expect(dispatcherDiagnostics.requestFailures).toEqual([]);
+  expect(dispatcherDiagnostics.unexpectedResponses).toEqual([]);
+});
+
+async function clickFirstTimelineBlockIfPresent(page: Page) {
   const item = page
     .locator('.gantt-timeline-canvas .vis-item.gantt-timeline-item')
-    .filter({ hasText: 'NX9001' })
     .first();
   for (let attempt = 0; attempt < 5; attempt += 1) {
     if (await item.isVisible().catch(() => false)) {
-      await item.click();
+      await item.click({ force: true });
       return;
     }
     await panTimelineForward(page);
   }
-  await expect(item).toBeVisible();
-  await item.click();
 }
 
 async function panTimelineForward(page: Page) {
@@ -160,4 +319,33 @@ async function panTimelineForward(page: Page) {
   await page.mouse.move(box.x + box.width * 0.18, y, { steps: 12 });
   await page.mouse.up();
   await page.waitForTimeout(700);
+}
+
+function collectBrowserDiagnostics(
+  page: Page,
+  isExpectedResponse: (response: import('@playwright/test').Response) => boolean = () => false,
+  isExpectedConsoleError: (message: string) => boolean = () => false,
+) {
+  const diagnostics = {
+    consoleErrors: [] as string[],
+    pageErrors: [] as string[],
+    requestFailures: [] as string[],
+    unexpectedResponses: [] as string[],
+  };
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      const text = message.text();
+      if (!isExpectedConsoleError(text)) {
+        diagnostics.consoleErrors.push(text);
+      }
+    }
+  });
+  page.on('pageerror', (error) => diagnostics.pageErrors.push(error.message));
+  page.on('requestfailed', (request) => diagnostics.requestFailures.push(`${request.method()} ${request.url()}`));
+  page.on('response', (response) => {
+    if (response.status() >= 400 && !isExpectedResponse(response)) {
+      diagnostics.unexpectedResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    }
+  });
+  return diagnostics;
 }
