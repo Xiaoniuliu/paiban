@@ -148,6 +148,13 @@ export function AssignmentDrawer({
                 <div className="mt-1 font-medium">{detail.task.taskType}</div>
                 <div className="mt-1 text-muted-foreground">{detail.task.sectorCount} {t('sectors')}</div>
               </div>
+              <div className="rounded-md border border-border p-3" data-testid="assignment-draft-context">
+                <div className="text-muted-foreground">{t('draftContext')}</div>
+                <div className="mt-2 space-y-2">
+                  <AssignmentCrewLine label={t('draftIssueSummary')} value={draftIssueSummaryLabel(detail, t)} />
+                  <AssignmentCrewLine label={t('draftAuditSummary')} value={draftAuditSummaryLabel(detail, t)} />
+                </div>
+              </div>
             </div>
           </section>
 
@@ -161,6 +168,18 @@ export function AssignmentDrawer({
               {!detail.canEdit && (
                 <div className="rounded-md border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
                   {t('assignmentCannotEdit')} {assignmentReadOnlyReason(detail.readOnlyReason, t)}
+                </div>
+              )}
+
+              {detail.issueSummary.totalIssueCount > 0 && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" data-testid="assignment-issue-summary">
+                  <div className="font-medium text-destructive">
+                    {t('draftIssueSummary')}: {detail.issueSummary.totalIssueCount}
+                    {detail.issueSummary.blockingIssueCount > 0 ? ` · ${t('draftBlockingIssues')}: ${detail.issueSummary.blockingIssueCount}` : ''}
+                  </div>
+                  {detail.issueSummary.latestIssueMessage && (
+                    <div className="mt-1 text-muted-foreground">{detail.issueSummary.latestIssueMessage}</div>
+                  )}
                 </div>
               )}
 
@@ -421,4 +440,28 @@ function assignmentReadOnlyReason(reason: string | null, t: (key: string) => str
   const key = `assignmentReadOnlyReason${reason}`;
   const label = t(key);
   return label === key ? reason : label;
+}
+
+function draftIssueSummaryLabel(detail: AssignmentTaskDetail, t: (key: string) => string) {
+  if (detail.issueSummary.totalIssueCount === 0) {
+    return t('draftNoIssues');
+  }
+  if (detail.issueSummary.blockingIssueCount > 0) {
+    return `${detail.issueSummary.totalIssueCount} / ${t('draftBlockingIssues')} ${detail.issueSummary.blockingIssueCount}`;
+  }
+  return String(detail.issueSummary.totalIssueCount);
+}
+
+function draftAuditSummaryLabel(detail: AssignmentTaskDetail, t: (key: string) => string) {
+  if (!detail.draftAuditSummary.hasDraftAudit) {
+    return t('draftNoAudit');
+  }
+  return draftAuditActionLabel(detail.draftAuditSummary.lastActionCode, t);
+}
+
+function draftAuditActionLabel(actionCode: string | null, t: (key: string) => string) {
+  if (!actionCode) return t('draftAuditUpdated');
+  const key = `draftAudit${actionCode}`;
+  const label = t(key);
+  return label === key ? actionCode : label;
 }

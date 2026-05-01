@@ -59,6 +59,14 @@ class AssignmentIntegrationTests {
         );
         jdbcTemplate.update(
             """
+            DELETE vh
+            FROM violation_hit vh
+            JOIN task_plan_item tpi ON tpi.id = vh.task_id
+            WHERE tpi.task_code = 'TESTDRT01'
+            """
+        );
+        jdbcTemplate.update(
+            """
             DELETE tb
             FROM timeline_block tb
             JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id
@@ -89,6 +97,14 @@ class AssignmentIntegrationTests {
             DELETE tb
             FROM timeline_block tb
             JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id
+            WHERE tpi.task_code = 'NX8810'
+            """
+        );
+        jdbcTemplate.update(
+            """
+            DELETE vh
+            FROM violation_hit vh
+            JOIN task_plan_item tpi ON tpi.id = vh.task_id
             WHERE tpi.task_code = 'NX8810'
             """
         );
@@ -248,7 +264,11 @@ class AssignmentIntegrationTests {
             .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].arrivalAirport".formatted(taskId)).value(hasItem("TPE")))
             .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canOpenAssignment".formatted(taskId)).value(hasItem(true)))
             .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canEditDraft".formatted(taskId)).value(hasItem(true)))
-            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canClearDraft".formatted(taskId)).value(hasItem(false)));
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canClearDraft".formatted(taskId)).value(hasItem(false)))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].runtimeSummary.taskStatus".formatted(taskId)).value(hasItem("UNASSIGNED")))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].runtimeSummary.runtimeMarkCodes.length()".formatted(taskId)).value(hasItem(0)))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].issueSummary.totalIssueCount".formatted(taskId)).value(hasItem(0)))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].draftAuditSummary.hasDraftAudit".formatted(taskId)).value(hasItem(false)));
 
         mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
                 .header("Authorization", "Bearer " + token)
@@ -260,11 +280,45 @@ class AssignmentIntegrationTests {
                     }
                     """.formatted(picCrewId, foCrewId)))
             .andExpect(status().isOk());
+        insertOpenViolation(taskId, "P0 BLOCK", "Crew status conflict requires review");
 
         mockMvc.perform(get("/api/assignments/draft-rostering/tasks").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].taskStatus".formatted(taskId)).value(hasItem("ASSIGNED_DRAFT")))
-            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canClearDraft".formatted(taskId)).value(hasItem(true)));
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].canClearDraft".formatted(taskId)).value(hasItem(true)))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].runtimeSummary.taskStatus".formatted(taskId)).value(hasItem("ASSIGNED_DRAFT")))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].issueSummary.totalIssueCount".formatted(taskId)).value(hasItem(1)))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].issueSummary.blockingIssueCount".formatted(taskId)).value(hasItem(1)))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].issueSummary.latestIssueMessage".formatted(taskId)).value(hasItem("Crew status conflict requires review")))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].draftAuditSummary.hasDraftAudit".formatted(taskId)).value(hasItem(true)))
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].draftAuditSummary.lastActionCode".formatted(taskId)).value(hasItem("ASSIGNMENT_DRAFT_SAVED")));
+    }
+
+    @Test
+    void assignmentTaskDetailExposesPhase3DraftContextSummaries() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long taskId = taskId("NX8810");
+        Long picCrewId = crewId("CPT001");
+        Long foCrewId = crewId("FO001");
+
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftPayload(picCrewId, foCrewId)))
+            .andExpect(status().isOk());
+        insertOpenViolation(taskId, "P0 BLOCK", "Draft has a blocking rule hit");
+
+        mockMvc.perform(get("/api/assignments/tasks/" + taskId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.runtimeSummary.taskStatus").value("ASSIGNED_DRAFT"))
+            .andExpect(jsonPath("$.data.runtimeSummary.runtimeMarkCodes.length()").value(0))
+            .andExpect(jsonPath("$.data.runtimeSummary.draftEditingBlocked").value(false))
+            .andExpect(jsonPath("$.data.issueSummary.totalIssueCount").value(1))
+            .andExpect(jsonPath("$.data.issueSummary.blockingIssueCount").value(1))
+            .andExpect(jsonPath("$.data.issueSummary.latestIssueMessage").value("Draft has a blocking rule hit"))
+            .andExpect(jsonPath("$.data.draftAuditSummary.hasDraftAudit").value(true))
+            .andExpect(jsonPath("$.data.draftAuditSummary.lastActionCode").value("ASSIGNMENT_DRAFT_SAVED"))
+            .andExpect(jsonPath("$.data.draftAuditSummary.lastActionAtUtc", notNullValue()));
     }
 
     @Test
@@ -679,6 +733,51 @@ class AssignmentIntegrationTests {
             crewId,
             cancelledTaskId,
             cancelledTaskId
+        );
+    }
+
+    private void insertOpenViolation(Long taskId, String severity, String message) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO violation_hit (
+              roster_version_id,
+              rule_catalog_id,
+              severity,
+              status,
+              target_type,
+              target_id,
+              task_id,
+              evidence_json,
+              evidence_window_start_utc,
+              evidence_window_end_utc,
+              message,
+              recommended_action
+            )
+            SELECT
+              rv.id,
+              rc.id,
+              ?,
+              'OPEN',
+              'TASK',
+              ?,
+              ?,
+              '{}',
+              tpi.scheduled_start_utc,
+              tpi.scheduled_end_utc,
+              ?,
+              'REVIEW'
+            FROM roster_version rv
+            JOIN task_plan_item tpi ON tpi.id = ?
+            JOIN rule_catalog rc ON rc.rule_id = 'CREW_STATUS_CONFLICT'
+            WHERE rv.status = 'DRAFT'
+            ORDER BY rv.id DESC
+            LIMIT 1
+            """,
+            severity,
+            taskId,
+            taskId,
+            message,
+            taskId
         );
     }
 

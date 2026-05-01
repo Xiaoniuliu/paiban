@@ -54,6 +54,7 @@ public class AssignmentService {
     private final CrewMemberRepository crewMemberRepository;
     private final TimelineBlockRepository timelineBlockRepository;
     private final AssignmentEligibilityService assignmentEligibilityService;
+    private final AssignmentDraftContextService assignmentDraftContextService;
     private final FlightArchiveCaseRepository archiveCaseRepository;
     private final JdbcTemplate jdbcTemplate;
     private final AuditLogService auditLogService;
@@ -64,6 +65,7 @@ public class AssignmentService {
         CrewMemberRepository crewMemberRepository,
         TimelineBlockRepository timelineBlockRepository,
         AssignmentEligibilityService assignmentEligibilityService,
+        AssignmentDraftContextService assignmentDraftContextService,
         FlightArchiveCaseRepository archiveCaseRepository,
         JdbcTemplate jdbcTemplate,
         AuditLogService auditLogService,
@@ -73,6 +75,7 @@ public class AssignmentService {
         this.crewMemberRepository = crewMemberRepository;
         this.timelineBlockRepository = timelineBlockRepository;
         this.assignmentEligibilityService = assignmentEligibilityService;
+        this.assignmentDraftContextService = assignmentDraftContextService;
         this.archiveCaseRepository = archiveCaseRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.auditLogService = auditLogService;
@@ -126,7 +129,10 @@ public class AssignmentService {
                     canOpenAssignment(user),
                     decision.canEditDraft(),
                     decision.canClearDraft(),
-                    decision.blockedReason()
+                    decision.blockedReason(),
+                    assignmentDraftContextService.runtimeSummary(task, decision.canEditDraft()),
+                    assignmentDraftContextService.issueSummary(task.getId()),
+                    assignmentDraftContextService.draftAuditSummary(task.getId())
                 );
             })
             .toList();
@@ -267,6 +273,9 @@ public class AssignmentService {
             blocks.stream().map(this::toCrewAssignmentResponse).toList(),
             blocks.stream().map(this::toBlockResponse).toList(),
             assignmentRequirements(task),
+            assignmentDraftContextService.runtimeSummary(task, canEdit),
+            assignmentDraftContextService.issueSummary(task.getId()),
+            assignmentDraftContextService.draftAuditSummary(task.getId()),
             canClearDraft,
             canEdit,
             canEdit ? null : readOnlyReason(user, archiveExists, published, cancelled)

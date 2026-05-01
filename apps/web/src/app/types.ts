@@ -256,6 +256,27 @@ export interface AssignmentCrewCandidate {
   eligibilityReasonCodes: string[];
 }
 
+export interface DraftRuntimeSummary {
+  taskStatus: string;
+  runtimeMarkCodes: string[];
+  draftEditingBlocked: boolean;
+}
+
+export interface DraftIssueSummary {
+  totalIssueCount: number;
+  blockingIssueCount: number;
+  warningIssueCount: number;
+  latestIssueSeverity: string | null;
+  latestIssueMessage: string | null;
+}
+
+export interface DraftAuditSummary {
+  hasDraftAudit: boolean;
+  lastActionCode: string | null;
+  lastActorUserId: number | null;
+  lastActionAtUtc: string | null;
+}
+
 export interface DraftRosteringTask {
   taskId: number;
   taskCode: string;
@@ -270,6 +291,9 @@ export interface DraftRosteringTask {
   canEditDraft: boolean;
   canClearDraft: boolean;
   blockedReason: string | null;
+  runtimeSummary: DraftRuntimeSummary;
+  issueSummary: DraftIssueSummary;
+  draftAuditSummary: DraftAuditSummary;
 }
 
 export interface DraftRosteringTaskList {
@@ -315,6 +339,9 @@ export interface AssignmentTaskDetail {
   currentAssignments: AssignmentCrewAssignment[];
   timelineBlocks: AssignmentTimelineBlock[];
   assignmentRequirements: AssignmentRequirement[];
+  runtimeSummary: DraftRuntimeSummary;
+  issueSummary: DraftIssueSummary;
+  draftAuditSummary: DraftAuditSummary;
   canClearDraft: boolean;
   canEdit: boolean;
   readOnlyReason: string | null;

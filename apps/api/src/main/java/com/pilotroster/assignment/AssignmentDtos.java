@@ -36,7 +36,10 @@ public final class AssignmentDtos {
         boolean canOpenAssignment,
         boolean canEditDraft,
         boolean canClearDraft,
-        String blockedReason
+        String blockedReason,
+        DraftRuntimeSummaryResponse runtimeSummary,
+        DraftIssueSummaryResponse issueSummary,
+        DraftAuditSummaryResponse draftAuditSummary
     ) {
     }
 
@@ -93,9 +96,36 @@ public final class AssignmentDtos {
         List<AssignmentCrewAssignmentResponse> currentAssignments,
         List<AssignmentTimelineBlockResponse> timelineBlocks,
         List<AssignmentRequirementResponse> assignmentRequirements,
+        DraftRuntimeSummaryResponse runtimeSummary,
+        DraftIssueSummaryResponse issueSummary,
+        DraftAuditSummaryResponse draftAuditSummary,
         boolean canClearDraft,
         boolean canEdit,
         String readOnlyReason
+    ) {
+    }
+
+    public record DraftRuntimeSummaryResponse(
+        String taskStatus,
+        List<String> runtimeMarkCodes,
+        boolean draftEditingBlocked
+    ) {
+    }
+
+    public record DraftIssueSummaryResponse(
+        int totalIssueCount,
+        int blockingIssueCount,
+        int warningIssueCount,
+        String latestIssueSeverity,
+        String latestIssueMessage
+    ) {
+    }
+
+    public record DraftAuditSummaryResponse(
+        boolean hasDraftAudit,
+        String lastActionCode,
+        Long lastActorUserId,
+        Instant lastActionAtUtc
     ) {
     }
 
