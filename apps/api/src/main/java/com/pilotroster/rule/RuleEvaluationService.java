@@ -24,7 +24,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class RuleEvaluationService {
 
-    private static final String STATUS_UNASSIGNED = "UNASSIGNED";
     private static final String STATUS_ASSIGNED_DRAFT = "ASSIGNED_DRAFT";
     private static final String STATUS_ASSIGNED = "ASSIGNED";
     private static final String STATUS_PUBLISHED = "PUBLISHED";
@@ -33,19 +32,10 @@ public class RuleEvaluationService {
     private static final String STATUS_NEEDS_REVIEW = "NEEDS_REVIEW";
     private static final String STATUS_WARNING = "WARNING";
     private static final String STATUS_CANCELLED = "CANCELLED";
-    private static final String ROLE_PIC = "PIC";
-    private static final String ROLE_FO = "FO";
     private static final String BLOCK_FLIGHT = "FLIGHT";
     private static final String BLOCK_DDO = "DDO";
     private static final String BLOCK_STANDBY = "STANDBY";
 
-    private static final Set<String> CREW_PAIR_STATUSES = Set.of(
-        STATUS_ASSIGNED_DRAFT,
-        STATUS_ASSIGNED,
-        STATUS_PUBLISHED,
-        STATUS_NEEDS_REVIEW,
-        STATUS_WARNING
-    );
     private static final Set<String> DUTY_CONFLICT_BLOCK_TYPES = Set.of(
         "REST",
         "DDO",
@@ -80,7 +70,7 @@ public class RuleEvaluationService {
             .collect(Collectors.groupingBy(TimelineBlock::getTaskPlanItemId));
 
         List<RuleHit> hits = new ArrayList<>();
-        buildPublishGateHits(tasks, blocksByTaskId, hits);
+        buildPublishGateHits(tasks, hits);
         buildCrewTimeConflictHits(blocks, tasksById, hits);
         buildPhase3FoundationHits(tasks, blocks, blocksByTaskId, tasksById, hits);
 
@@ -115,21 +105,10 @@ public class RuleEvaluationService {
 
     private void buildPublishGateHits(
         List<TaskPlanItem> tasks,
-        Map<Long, List<TimelineBlock>> blocksByTaskId,
         List<RuleHit> hits
     ) {
         for (TaskPlanItem task : tasks) {
             if (STATUS_CANCELLED.equals(task.getStatus())) {
-                continue;
-            }
-            if (STATUS_UNASSIGNED.equals(task.getStatus())) {
-                hits.add(taskHit(
-                    task,
-                    "CREW_ASSIGNMENT_REQUIRED",
-                    "BLOCK",
-                    "The flight remains unassigned. Save a draft assignment before publishing.",
-                    "ASSIGNMENT_DRAWER"
-                ));
                 continue;
             }
             if (STATUS_VALIDATION_FAILED.equals(task.getStatus()) || STATUS_BLOCKED.equals(task.getStatus())) {
@@ -139,16 +118,6 @@ public class RuleEvaluationService {
                     "BLOCK",
                     "Fix the assignment or resolve the rule hit, then run validation again.",
                     "STATUS_REPAIR"
-                ));
-                continue;
-            }
-            if (CREW_PAIR_STATUSES.contains(task.getStatus()) && !hasRequiredCrewPair(blocksByTaskId.getOrDefault(task.getId(), List.of()))) {
-                hits.add(taskHit(
-                    task,
-                    "CREW_PAIR_REQUIRED",
-                    "BLOCK",
-                    "Assigned flights must have both PIC and FO timeline blocks.",
-                    "ASSIGNMENT_DRAWER"
                 ));
                 continue;
             }
@@ -292,16 +261,6 @@ public class RuleEvaluationService {
                 ));
             }
         }
-    }
-
-    private boolean hasRequiredCrewPair(List<TimelineBlock> blocks) {
-        boolean hasPic = blocks.stream()
-            .filter(block -> BLOCK_FLIGHT.equals(block.getBlockType()))
-            .anyMatch(block -> ROLE_PIC.equals(block.getAssignmentRole()));
-        boolean hasFo = blocks.stream()
-            .filter(block -> BLOCK_FLIGHT.equals(block.getBlockType()))
-            .anyMatch(block -> ROLE_FO.equals(block.getAssignmentRole()));
-        return hasPic && hasFo;
     }
 
     private boolean overlaps(TimelineBlock left, TimelineBlock right) {

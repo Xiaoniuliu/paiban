@@ -100,7 +100,6 @@ export const menuGroups: MenuGroup[] = [
     children: [
       { id: 'validation-violation-handling', roles: operationsRoles },
       { id: 'validation-release-gates', roles: operationsRoles },
-      { id: 'validation-export', roles: operationsRoles },
       { id: 'workbench-archive-entry', roles: operationsRoles },
     ],
     aliases: [

@@ -156,6 +156,7 @@ public final class AssignmentDtos {
         Instant affectedWindowEndUtc,
         List<Long> affectedCrewIds,
         List<Long> affectedTaskIds,
+        Long auditLogId,
         String validationSummary
     ) {
     }
@@ -163,7 +164,8 @@ public final class AssignmentDtos {
     public record ClearAssignmentDraftResponse(
         AssignmentTaskResponse task,
         List<Long> affectedCrewIds,
-        List<Long> affectedTaskIds
+        List<Long> affectedTaskIds,
+        Long auditLogId
     ) {
     }
 }

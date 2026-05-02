@@ -366,12 +366,14 @@ export interface SaveAssignmentDraftResponse {
   affectedCrewIds: number[];
   affectedTaskIds: number[];
   validationSummary: string;
+  auditLogId: number;
 }
 
 export interface ClearAssignmentDraftResponse {
   task: TaskPlanItem;
   affectedCrewIds: number[];
   affectedTaskIds: number[];
+  auditLogId: number;
 }
 
 export type ValidationIssueSeverity = 'BLOCK' | 'WARNING';

@@ -21,7 +21,7 @@ export { FlightTaskPage } from './FlightTaskPage';
 export { CrewInformationPage } from './CrewInformationPage';
 export { CrewStatusTimelinePage } from './CrewStatusTimelinePage';
 export { IssueHandlingPage } from './IssueHandlingPage';
-export { PublishExportPage, PublishResultPage } from './PublishResultPage';
+export { PublishResultPage } from './PublishResultPage';
 export { WorkbenchCrewViewPage } from './workbench/WorkbenchCrewViewPage';
 export { WorkbenchFlightViewPage } from './workbench/WorkbenchFlightViewPage';
 

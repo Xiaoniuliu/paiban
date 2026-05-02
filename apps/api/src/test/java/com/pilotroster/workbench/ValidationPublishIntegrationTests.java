@@ -47,13 +47,12 @@ class ValidationPublishIntegrationTests {
     }
 
     @Test
-    void validationPublishBlocksReleaseWhenFlightsRemainUnassigned() throws Exception {
+    void validationPublishDoesNotCreateRuleHitsForUnassignedFlights() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
 
         mockMvc.perform(get("/api/rostering-workbench/validation-publish").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.blockedCount").value(greaterThanOrEqualTo(2)))
-            .andExpect(jsonPath("$.data.canPublish").value(false));
+            .andExpect(jsonPath("$.data.blockedCount").value(0));
 
         mockMvc.perform(post("/api/rostering-workbench/validation-publish/validate")
                 .header("Authorization", "Bearer " + token)
@@ -61,14 +60,9 @@ class ValidationPublishIntegrationTests {
                 .content("{}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.validatedAtUtc", notNullValue()))
-            .andExpect(jsonPath("$.data.issues[*].ruleId").value(hasItem("CREW_ASSIGNMENT_REQUIRED")))
-            .andExpect(jsonPath("$.data.issues[*].severity").value(hasItem("BLOCK")));
-
-        mockMvc.perform(post("/api/rostering-workbench/validation-publish/publish")
-                .header("Authorization", "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"managerConfirmed\":true}"))
-            .andExpect(status().isConflict());
+            .andExpect(jsonPath("$.data.blockedCount").value(0))
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(not(hasItem("CREW_ASSIGNMENT_REQUIRED"))))
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(not(hasItem("CREW_PAIR_REQUIRED"))));
     }
 
     @Test

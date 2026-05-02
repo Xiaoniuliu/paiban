@@ -16,6 +16,9 @@ public class AssignmentDraftContextService {
 
     private static final String STATUS_CANCELLED = "CANCELLED";
     private static final String STATUS_PUBLISHED = "PUBLISHED";
+    private static final String REASON_ARCHIVE_CASE_EXISTS = "ARCHIVE_CASE_EXISTS";
+    private static final String REASON_CANCELLED_TASK = "CANCELLED_TASK";
+    private static final String REASON_PUBLISHED_LOCKED = "PUBLISHED_LOCKED_RUN_DAY_ADJUSTMENT_REQUIRED";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -23,7 +26,7 @@ public class AssignmentDraftContextService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public DraftRuntimeSummaryResponse runtimeSummary(TaskPlanItem task, boolean canEditDraft) {
+    public DraftRuntimeSummaryResponse runtimeSummary(TaskPlanItem task, String readOnlyReason) {
         List<String> runtimeMarkCodes = new ArrayList<>();
         if (STATUS_CANCELLED.equals(task.getStatus())) {
             runtimeMarkCodes.add("CANCELLED");
@@ -31,8 +34,14 @@ public class AssignmentDraftContextService {
         return new DraftRuntimeSummaryResponse(
             task.getStatus(),
             runtimeMarkCodes,
-            !canEditDraft && (STATUS_CANCELLED.equals(task.getStatus()) || STATUS_PUBLISHED.equals(task.getStatus()))
+            draftEditingBlocked(readOnlyReason)
         );
+    }
+
+    private boolean draftEditingBlocked(String readOnlyReason) {
+        return REASON_ARCHIVE_CASE_EXISTS.equals(readOnlyReason)
+            || REASON_CANCELLED_TASK.equals(readOnlyReason)
+            || REASON_PUBLISHED_LOCKED.equals(readOnlyReason);
     }
 
     public DraftIssueSummaryResponse issueSummary(Long taskId) {

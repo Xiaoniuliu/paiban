@@ -137,7 +137,7 @@ Files involved include:
 
 ### Phase 2: Crew resource module
 
-Partially completed:
+Completed for the boundary needed before draft rostering:
 
 - Crew module route/page boundary split from mixed hub
 - Main crew path currently focuses on:
@@ -152,10 +152,10 @@ Partially completed:
   - `D:\paiban2\apps\web\src\app\pages\CrewDutyCalendarSection.tsx`
 - Duty-calendar status labels and colors were localized / cleaned up
 
-Important caveat:
+Follow-up note:
 
-- The **visual split exists**
-- But the **write model is still too fat** and is a known maintainability issue
+- Additional crew-domain fields can be added later inside the four bounded sections.
+- This is no longer a Phase 3 / rules-engine blocker.
 
 ### Run-data module closure
 
@@ -245,13 +245,13 @@ What was done:
 
 ## Current Verified State
 
-At the latest Phase 3 preflight verification:
+At the latest Phase 3 / Phase 4 closeout verification:
 
 - Backend targeted integration tests passed for task planning, assignment, eligibility, crew, flight operations, and archive contracts.
 - `npm run build` passed for `apps\web`.
 - `npm run check:i18n` passed for `apps\web`.
 - Playwright real-click + F12 checks passed for dispatcher login, protected actions, draft rostering read-only/edit behavior, display-only timeline behavior, workbench route compatibility, archive placement, and rule-hit projection.
-- The remaining frontend build warning is the known large chunk warning and is not a Phase 3 blocker.
+- The remaining frontend build warning is the known large chunk warning and is not a rules-engine blocker.
 
 ## Maintainability Findings Resolved Before Phase 3
 
@@ -274,16 +274,25 @@ Completed after the workbench boundary review:
 - The compatibility Playwright test now asserts the retired run-day route does **not** render `gantt-timeline`.
 - Remaining `runDayAdjustment` API/type names are not consumed by the workbench main path; they are reserved only for a future independent business module decision.
 
-## Phase 3 Entry Flow
+## Phase 3 / Phase 4 Closure
 
-Phase 3 should start from the now-stable draft rostering boundary:
+The scoped Phase 3 draft rostering migration is closed:
 
-1. Freeze Phase 3 draft rostering contract around `DraftRosteringPage` and `AssignmentDrawer`.
-2. Expand assignment validation and candidate explanation only through backend eligibility/read models.
-3. Keep timeline as a read-only projection of persisted backend facts.
-4. Route rule issues through `校验与问题处理`; do not add issue handling behavior to timeline or workbench pages.
-5. Route publish/export results through `发布结果` / `结果导出`; do not restore old `校验与发布` workbench ownership.
-6. Keep post-flight archive under `校验与问题处理 -> 飞后归档`.
+1. Phase 3 draft rostering contract is frozen around `DraftRosteringPage` and `AssignmentDrawer`.
+2. Assignment validation and candidate explanation come through backend eligibility/read models.
+3. Timeline remains a read-only projection of persisted backend facts.
+4. Rule issues route through `校验与问题处理`; issue-handling behavior is not owned by timeline or workbench pages.
+5. Publish results route through `发布结果`; export is a button/action inside `发布结果`, and old `校验与发布` workbench ownership is not restored.
+6. Post-flight archive stays under `校验与问题处理 -> 飞后归档`.
+
+The pulled-forward Phase 4 timeline downgrade is also closed for the current scope:
+
+- timeline consumes backend truth only
+- timeline may display status/rule-hit projections
+- timeline must not generate, promote, or edit assignment state
+- workbench timeline loading does not trigger archive synchronization or other write-side refresh operations
+
+The next major implementation track is the rules engine.
 
 ## Important Open Cautions
 
@@ -299,11 +308,11 @@ The frontend workbench route is retired. If run-day adjustment returns later, it
 
 ## Handoff Recommendation
 
-When resuming Phase 3:
+When resuming:
 
 1. Open this file first.
 2. Open:
    - `D:\paiban2\docs\pilot-rostering-system-rearchitecture-master-plan.md`
    - `D:\paiban2\docs\superpowers\plans\2026-05-01-phase-3-preflight-strict-cleanup-task-directory.md`
    - `D:\paiban2\docs\superpowers\specs\2026-05-01-phase-3-workbench-boundary-rebuild-design.md`
-3. Start Phase 3 from `DraftRosteringPage` / `AssignmentDrawer`; do not add new workflow behavior through `Pages.tsx` or timeline item clicks.
+3. Start the rules-engine track from backend task/crew/draft facts; do not add new workflow behavior through `Pages.tsx` or timeline item clicks.

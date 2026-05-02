@@ -3,6 +3,7 @@ package com.pilotroster.assignment;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -10,6 +11,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,6 +34,9 @@ class AssignmentIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @AfterEach
     void resetAssignmentSeed() {
@@ -212,6 +219,23 @@ class AssignmentIntegrationTests {
     }
 
     @Test
+    void assignmentCandidatePoolsKeepRequiredRolesNarrowAndAdditionalCrewBroad() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long taskId = taskId("NX8810");
+        Long picCrewId = crewId("CPT001");
+        Long foCrewId = crewId("FO001");
+
+        mockMvc.perform(get("/api/assignments/tasks/" + taskId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.picCandidates[?(@.id == %d)].roleCode".formatted(picCrewId)).value(hasItem("CAPTAIN")))
+            .andExpect(jsonPath("$.data.picCandidates[?(@.id == %d)]".formatted(foCrewId)).doesNotExist())
+            .andExpect(jsonPath("$.data.foCandidates[?(@.id == %d)].roleCode".formatted(foCrewId)).value(hasItem("FIRST_OFFICER")))
+            .andExpect(jsonPath("$.data.foCandidates[?(@.id == %d)]".formatted(picCrewId)).doesNotExist())
+            .andExpect(jsonPath("$.data.additionalCandidates[?(@.id == %d)].roleCode".formatted(picCrewId)).value(hasItem("CAPTAIN")))
+            .andExpect(jsonPath("$.data.additionalCandidates[?(@.id == %d)].roleCode".formatted(foCrewId)).value(hasItem("FIRST_OFFICER")));
+    }
+
+    @Test
     void dispatcherClearsDraftAssignmentBackToUnassigned() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
         Long taskId = taskId("NX8810");
@@ -247,6 +271,107 @@ class AssignmentIntegrationTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX8810 MFM-TPE')].taskStatus").value(hasItem("UNASSIGNED")))
             .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX8810 MFM-TPE')].crewId").value(hasItem((Object) null)));
+    }
+
+    @Test
+    void archiveCaseBlocksDraftDetailSaveAndClearEvenBeforePublishedStatus() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long taskId = createDraftQueueTask(token);
+        Long picCrewId = crewId("CPT001");
+        Long foCrewId = crewId("FO001");
+
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftPayload(picCrewId, foCrewId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.task.status").value("ASSIGNED_DRAFT"));
+        createArchiveCase(taskId);
+
+        mockMvc.perform(get("/api/assignments/tasks/" + taskId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.task.status").value("ASSIGNED_DRAFT"))
+            .andExpect(jsonPath("$.data.canEdit").value(false))
+            .andExpect(jsonPath("$.data.canClearDraft").value(false))
+            .andExpect(jsonPath("$.data.readOnlyReason").value("ARCHIVE_CASE_EXISTS"))
+            .andExpect(jsonPath("$.data.runtimeSummary.draftEditingBlocked").value(true));
+
+        mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftPayload(picCrewId, foCrewId)))
+            .andExpect(status().isConflict());
+
+        mockMvc.perform(delete("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isConflict());
+    }
+
+    @Test
+    void saveAndClearDraftReturnAuditIdsAndRecordMeaningfulAuditPayloads() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long taskId = createDraftQueueTask(token);
+        Long picCrewId = crewId("CPT001");
+        Long foCrewId = crewId("FO001");
+        Long reliefCrewId = crewId("FO002");
+
+        MvcResult saveResult = mockMvc.perform(put("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftPayloadWithRelief(picCrewId, foCrewId, reliefCrewId)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.auditLogId", notNullValue()))
+            .andReturn();
+        Long saveAuditLogId = extractLong(saveResult.getResponse().getContentAsString(), "\"auditLogId\":");
+
+        assertAuditAndEventPayload(
+            saveAuditLogId,
+            "ASSIGNMENT_DRAFT_SAVED",
+            "AssignmentDraftSaved",
+            taskId,
+            "2026-05-03T01:00:00Z",
+            "2026-05-03T05:00:00Z",
+            List.of(picCrewId, foCrewId, reliefCrewId),
+            List.of(
+                new ExpectedAssignment(picCrewId, "PIC", 0),
+                new ExpectedAssignment(foCrewId, "FO", 1),
+                new ExpectedAssignment(reliefCrewId, "RELIEF", 2)
+            )
+        );
+
+        mockMvc.perform(get("/api/assignments/draft-rostering/tasks").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].draftAuditSummary.lastActionCode".formatted(taskId)).value(hasItem("ASSIGNMENT_DRAFT_SAVED")));
+
+        MvcResult clearResult = mockMvc.perform(delete("/api/assignments/tasks/" + taskId + "/draft")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.auditLogId", notNullValue()))
+            .andReturn();
+        Long clearAuditLogId = extractLong(clearResult.getResponse().getContentAsString(), "\"auditLogId\":");
+
+        assertAuditAndEventPayload(
+            clearAuditLogId,
+            "ASSIGNMENT_DRAFT_CLEARED",
+            "AssignmentDraftCleared",
+            taskId,
+            "2026-05-03T01:00:00Z",
+            "2026-05-03T05:00:00Z",
+            List.of(picCrewId, foCrewId, reliefCrewId),
+            List.of(
+                new ExpectedAssignment(picCrewId, "PIC", 0),
+                new ExpectedAssignment(foCrewId, "FO", 1),
+                new ExpectedAssignment(reliefCrewId, "RELIEF", 2)
+            )
+        );
+
+        mockMvc.perform(get("/api/assignments/tasks/" + taskId).header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.draftAuditSummary.hasDraftAudit").value(true))
+            .andExpect(jsonPath("$.data.draftAuditSummary.lastActionCode").value("ASSIGNMENT_DRAFT_CLEARED"));
+        mockMvc.perform(get("/api/assignments/draft-rostering/tasks").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.tasks[?(@.taskId == %d)].draftAuditSummary.lastActionCode".formatted(taskId)).value(hasItem("ASSIGNMENT_DRAFT_CLEARED")));
     }
 
     @Test
@@ -599,6 +724,84 @@ class AssignmentIntegrationTests {
         return jdbcTemplate.queryForObject("SELECT id FROM crew_member WHERE crew_code = ?", Long.class, crewCode);
     }
 
+    private void assertAuditAndEventPayload(
+        Long auditLogId,
+        String actionCode,
+        String eventType,
+        Long taskId,
+        String windowStartUtc,
+        String windowEndUtc,
+        List<Long> affectedCrewIds,
+        List<ExpectedAssignment> expectedAssignments
+    ) throws Exception {
+        String auditPayload = jdbcTemplate.queryForObject(
+            """
+            SELECT detail_json
+            FROM audit_log
+            WHERE id = ?
+              AND action_code = ?
+              AND object_type = 'TaskPlanItem'
+              AND object_id = ?
+            """,
+            String.class,
+            auditLogId,
+            actionCode,
+            String.valueOf(taskId)
+        );
+        assertDraftPayload(auditPayload, actionCode, taskId, windowStartUtc, windowEndUtc, affectedCrewIds, expectedAssignments);
+
+        String eventPayload = jdbcTemplate.queryForObject(
+            """
+            SELECT payload_json
+            FROM domain_event
+            WHERE event_type = ?
+              AND aggregate_type = 'TaskPlanItem'
+              AND aggregate_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            String.class,
+            eventType,
+            String.valueOf(taskId)
+        );
+        assertDraftPayload(eventPayload, actionCode, taskId, windowStartUtc, windowEndUtc, affectedCrewIds, expectedAssignments);
+    }
+
+    private void assertDraftPayload(
+        String payloadJson,
+        String actionCode,
+        Long taskId,
+        String windowStartUtc,
+        String windowEndUtc,
+        List<Long> affectedCrewIds,
+        List<ExpectedAssignment> expectedAssignments
+    ) throws Exception {
+        JsonNode payload = objectMapper.readTree(payloadJson);
+        assertEquals(actionCode, payload.path("actionType").asText());
+        assertEquals(true, payload.path("rosterVersionId").canConvertToLong());
+        assertLongArray(affectedCrewIds, payload.path("affectedCrewIds"));
+        assertLongArray(List.of(taskId), payload.path("affectedTaskIds"));
+        assertEquals(windowStartUtc, payload.path("affectedWindow").path("startUtc").asText());
+        assertEquals(windowEndUtc, payload.path("affectedWindow").path("endUtc").asText());
+
+        JsonNode assignments = payload.path("assignments");
+        assertEquals(expectedAssignments.size(), assignments.size());
+        for (int index = 0; index < expectedAssignments.size(); index++) {
+            ExpectedAssignment expected = expectedAssignments.get(index);
+            JsonNode assignment = assignments.get(index);
+            assertEquals(expected.crewId(), assignment.path("crewId").asLong());
+            assertEquals(expected.assignmentRole(), assignment.path("assignmentRole").asText());
+            assertEquals(expected.displayOrder(), assignment.path("displayOrder").asInt());
+        }
+    }
+
+    private void assertLongArray(List<Long> expectedValues, JsonNode actualArray) {
+        assertEquals(expectedValues.size(), actualArray.size());
+        for (int index = 0; index < expectedValues.size(); index++) {
+            assertEquals(expectedValues.get(index), actualArray.get(index).asLong());
+        }
+    }
+
     private void restoreCrewSeed() {
         jdbcTemplate.update(
             """
@@ -619,6 +822,20 @@ class AssignmentIntegrationTests {
             }
             """.formatted(picCrewId, foCrewId);
     }
+
+    private String draftPayloadWithRelief(Long picCrewId, Long foCrewId, Long reliefCrewId) {
+        return """
+            {
+              "picCrewId": %d,
+              "foCrewId": %d,
+              "additionalAssignments": [
+                { "crewId": %d, "assignmentRole": "RELIEF" }
+              ]
+            }
+            """.formatted(picCrewId, foCrewId, reliefCrewId);
+    }
+
+    private record ExpectedAssignment(Long crewId, String assignmentRole, int displayOrder) {}
 
     private void insertStatusConflict(Long crewId, Long taskId) {
         jdbcTemplate.update(

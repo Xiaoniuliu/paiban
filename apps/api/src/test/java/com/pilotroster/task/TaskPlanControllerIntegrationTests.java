@@ -607,6 +607,10 @@ class TaskPlanControllerIntegrationTests {
     }
 
     private void insertViolationHit(Long taskId, Long timelineBlockId) {
+        Long ruleCatalogId = jdbcTemplate.queryForObject(
+            "SELECT id FROM rule_catalog WHERE rule_id = 'CREW_TIME_OVERLAP' LIMIT 1",
+            Long.class
+        );
         jdbcTemplate.update("""
             INSERT INTO violation_hit (
               roster_version_id,
@@ -623,9 +627,10 @@ class TaskPlanControllerIntegrationTests {
               message,
               recommended_action,
               evidence_json
-            ) VALUES (1, ?, 1, 'WARNING', 'OPEN', 'TASK', ?, NULL, ?, ?, ?, 'Test violation', 'Review', '{}')
+            ) VALUES (1, ?, ?, 'WARNING', 'OPEN', 'TASK', ?, NULL, ?, ?, ?, 'Test violation', 'Review', '{}')
             """,
             timelineBlockId,
+            ruleCatalogId,
             taskId,
             taskId,
             Instant.parse("2026-05-03T01:00:00Z"),

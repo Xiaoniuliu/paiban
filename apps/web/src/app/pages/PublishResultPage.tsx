@@ -12,19 +12,10 @@ import { Timestamp } from '../components/time';
 import type { PageProps } from './pageTypes';
 
 export function PublishResultPage({ activeView, api, t }: PageProps) {
-  return <PublishResultsWorkspace activeView={activeView} api={api} t={t} mode="publish" />;
+  return <PublishResultsWorkspace activeView={activeView} api={api} t={t} />;
 }
 
-export function PublishExportPage({ activeView, api, t }: PageProps) {
-  return <PublishResultsWorkspace activeView={activeView} api={api} t={t} mode="export" />;
-}
-
-function PublishResultsWorkspace({
-  activeView,
-  api,
-  t,
-  mode,
-}: Pick<PageProps, 'activeView' | 'api' | 't'> & { mode: 'publish' | 'export' }) {
+function PublishResultsWorkspace({ activeView, api, t }: Pick<PageProps, 'activeView' | 'api' | 't'>) {
   const [view, setView] = useState<PublishResultView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -32,7 +23,6 @@ function PublishResultsWorkspace({
   const [validating, setValidating] = useState(false);
   const [exporting, setExporting] = useState<'flight' | 'crew' | null>(null);
   const [notice, setNotice] = useState('');
-  const defaultTab = mode === 'export' ? 'crew' : 'flight';
 
   const load = useCallback(() => {
     setLoading(true);
@@ -108,19 +98,19 @@ function PublishResultsWorkspace({
       <PageHeader
         icon={FileCheck2}
         title={t(viewTitleKey[activeView])}
-        description={t(mode === 'export' ? 'publishExportDescription' : 'publishResultsDescription')}
+        description={t('publishResultsDescription')}
       />
 
       <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-        {t(mode === 'export' ? 'publishExportBoundaryNote' : 'publishResultsBoundaryNote')}
+        {t('publishResultsBoundaryNote')}
       </div>
 
       <Card className="rounded-lg" data-testid="publish-result-actions">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <CardTitle className="text-base">{t(mode === 'export' ? 'publishExportTitle' : 'publishResultsActionTitle')}</CardTitle>
-              <CardDescription>{t(mode === 'export' ? 'publishExportActionDescription' : 'publishResultsActionDescription')}</CardDescription>
+              <CardTitle className="text-base">{t('publishResultsActionTitle')}</CardTitle>
+              <CardDescription>{t('publishResultsActionDescription')}</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -133,32 +123,24 @@ function PublishResultsWorkspace({
                 <RefreshCw className="h-4 w-4" />
                 {t('refresh')}
               </Button>
-              {mode === 'publish' ? (
-                <>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={runValidation}
-                    disabled={loading || validating || publishing || exporting !== null}
-                  >
-                    <ListChecks className="h-4 w-4" />
-                    {validating ? `${t('loading')}...` : t('submitValidation')}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={publishRoster}
-                    disabled={!summary?.canPublish || !summary?.validatedAtUtc || validating || publishing || exporting !== null}
-                  >
-                    <Send className="h-4 w-4" />
-                    {publishing ? `${t('saving')}...` : t('publishRoster')}
-                  </Button>
-                </>
-              ) : (
-                <Button asChild type="button" size="sm" variant="outline">
-                  <a href="/validation-center/release-gates">{t('openPublishResults')}</a>
-                </Button>
-              )}
+              <Button
+                type="button"
+                size="sm"
+                onClick={runValidation}
+                disabled={loading || validating || publishing || exporting !== null}
+              >
+                <ListChecks className="h-4 w-4" />
+                {validating ? `${t('loading')}...` : t('submitValidation')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={publishRoster}
+                disabled={!summary?.canPublish || !summary?.validatedAtUtc || validating || publishing || exporting !== null}
+              >
+                <Send className="h-4 w-4" />
+                {publishing ? `${t('saving')}...` : t('publishRoster')}
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -187,15 +169,9 @@ function PublishResultsWorkspace({
                   <Badge variant="outline" className="border-warning text-warning">{t('validationManagerConfirm')}</Badge>
                 )}
               </div>
-              {summary.inactiveRuleIds.length > 0 && (
-                <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
-                  <span className="font-medium">{t('validationInactiveRulesTitle')}</span>
-                  <span className="ml-2">{summary.inactiveRuleIds.join(', ')}</span>
-                </div>
-              )}
             </>
           )}
-          {mode === 'publish' && notice && <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">{notice}</div>}
+          {notice && <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">{notice}</div>}
           {error && <div className="text-sm text-destructive">{error}</div>}
         </CardContent>
       </Card>
@@ -220,7 +196,7 @@ function PublishResultsWorkspace({
           </div>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue={defaultTab} className="space-y-4">
+          <Tabs defaultValue="flight" className="space-y-4">
             <TabsList>
               <TabsTrigger value="flight">{t('publishResultsFlightView')}</TabsTrigger>
               <TabsTrigger value="crew">{t('publishResultsCrewView')}</TabsTrigger>

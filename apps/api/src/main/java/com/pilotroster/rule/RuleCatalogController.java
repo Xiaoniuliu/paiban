@@ -340,7 +340,8 @@ public class RuleCatalogController {
     }
 
     private boolean activationLocked(RuleCatalog rule) {
-        return "BLOCK".equals(rule.getSeverityDefault()) || "NON_COMPLIANT".equals(rule.getSeverityDefault());
+        String severity = rule.getSeverityDefault();
+        return severity != null && (severity.equals("P0") || severity.startsWith("P0 ") || severity.equals("BLOCK"));
     }
 
     private static String json(String value) {

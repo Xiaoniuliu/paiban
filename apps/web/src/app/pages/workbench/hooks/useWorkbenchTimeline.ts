@@ -65,12 +65,11 @@ export function useWorkbenchTimeline(
     let active = true;
     setTimelineLoaded(false);
     setError('');
-    api.syncArchiveState()
-      .then(() => api.ganttTimeline({
+    api.ganttTimeline({
         windowStartUtc: queryWindow.windowStartUtc,
         windowEndUtc: queryWindow.windowEndUtc,
         viewMode,
-      }))
+      })
       .then((timelineBlocks) => {
         if (!active) return;
         setBlocks(timelineBlocks);

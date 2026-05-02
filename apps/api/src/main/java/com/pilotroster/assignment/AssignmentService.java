@@ -1,5 +1,7 @@
 package com.pilotroster.assignment;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentCrewCandidateResponse;
 import com.pilotroster.assignment.AssignmentDtos.AssignmentCrewAssignmentResponse;
 import com.pilotroster.assignment.AssignmentDtos.AdditionalAssignmentRequest;
@@ -25,6 +27,7 @@ import com.pilotroster.timeline.TimelineBlock;
 import com.pilotroster.timeline.TimelineBlockRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,6 +52,8 @@ public class AssignmentService {
     private static final String ROLE_FO = "FO";
     private static final String ROLE_RELIEF = "RELIEF";
     private static final String ROLE_EXTRA = "EXTRA";
+    private static final String ACTION_DRAFT_SAVED = "ASSIGNMENT_DRAFT_SAVED";
+    private static final String ACTION_DRAFT_CLEARED = "ASSIGNMENT_DRAFT_CLEARED";
 
     private final TaskPlanItemRepository taskPlanItemRepository;
     private final CrewMemberRepository crewMemberRepository;
@@ -59,6 +64,7 @@ public class AssignmentService {
     private final JdbcTemplate jdbcTemplate;
     private final AuditLogService auditLogService;
     private final DomainEventService domainEventService;
+    private final ObjectMapper objectMapper;
 
     public AssignmentService(
         TaskPlanItemRepository taskPlanItemRepository,
@@ -69,7 +75,8 @@ public class AssignmentService {
         FlightArchiveCaseRepository archiveCaseRepository,
         JdbcTemplate jdbcTemplate,
         AuditLogService auditLogService,
-        DomainEventService domainEventService
+        DomainEventService domainEventService,
+        ObjectMapper objectMapper
     ) {
         this.taskPlanItemRepository = taskPlanItemRepository;
         this.crewMemberRepository = crewMemberRepository;
@@ -80,6 +87,7 @@ public class AssignmentService {
         this.jdbcTemplate = jdbcTemplate;
         this.auditLogService = auditLogService;
         this.domainEventService = domainEventService;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional(readOnly = true)
@@ -114,7 +122,7 @@ public class AssignmentService {
                 DraftEditDecision decision = draftDecision(
                     task,
                     user,
-                    STATUS_PUBLISHED.equals(task.getStatus()) && archivedTaskIds.contains(task.getId())
+                    archivedTaskIds.contains(task.getId())
                 );
                 return new DraftRosteringTaskSummaryResponse(
                     task.getId(),
@@ -130,7 +138,7 @@ public class AssignmentService {
                     decision.canEditDraft(),
                     decision.canClearDraft(),
                     decision.blockedReason(),
-                    assignmentDraftContextService.runtimeSummary(task, decision.canEditDraft()),
+                    assignmentDraftContextService.runtimeSummary(task, decision.blockedReason()),
                     assignmentDraftContextService.issueSummary(task.getId()),
                     assignmentDraftContextService.draftAuditSummary(task.getId())
                 );
@@ -166,22 +174,35 @@ public class AssignmentService {
         task.setStatus(DRAFT_ASSIGNED_STATUS);
         taskPlanItemRepository.save(task);
 
-        auditLogService.recordAndReturnId(
+        List<Long> affectedCrewIds = desiredAssignments.stream().map(assignment -> assignment.crew().getId()).toList();
+        List<Long> affectedTaskIds = List.of(task.getId());
+        String auditPayload = draftAuditPayload(
+            ACTION_DRAFT_SAVED,
+            rosterVersionId,
+            affectedCrewIds,
+            affectedTaskIds,
+            task.getScheduledStartUtc(),
+            task.getScheduledEndUtc(),
+            desiredAssignments
+        );
+        Long auditLogId = auditLogService.recordAndReturnId(
             user.id(),
-            "ASSIGNMENT_DRAFT_SAVED",
+            ACTION_DRAFT_SAVED,
             "TaskPlanItem",
             task.getId().toString(),
             "SUCCESS"
         );
-        domainEventService.record("AssignmentDraftSaved", "TaskPlanItem", task.getId().toString(), "{}");
+        updateAuditDetail(auditLogId, auditPayload);
+        domainEventService.record("AssignmentDraftSaved", "TaskPlanItem", task.getId().toString(), auditPayload);
 
         return new SaveAssignmentDraftResponse(
             toTaskResponse(task),
             nextBlocks.stream().map(this::toBlockResponse).toList(),
             task.getScheduledStartUtc(),
             task.getScheduledEndUtc(),
-            desiredAssignments.stream().map(assignment -> assignment.crew().getId()).toList(),
-            List.of(task.getId()),
+            affectedCrewIds,
+            affectedTaskIds,
+            auditLogId,
             "OK"
         );
     }
@@ -209,20 +230,83 @@ public class AssignmentService {
         task.setStatus(STATUS_UNASSIGNED);
         taskPlanItemRepository.save(task);
 
-        auditLogService.recordAndReturnId(
+        List<Long> affectedTaskIds = List.of(task.getId());
+        String auditPayload = draftAuditPayload(
+            ACTION_DRAFT_CLEARED,
+            rosterVersionId,
+            affectedCrewIds,
+            affectedTaskIds,
+            task.getScheduledStartUtc(),
+            task.getScheduledEndUtc(),
+            existingBlocks.stream()
+                .map(block -> new DesiredAssignment(
+                    crew(block.getCrewMemberId()),
+                    block.getAssignmentRole(),
+                    block.getDisplayOrder() == null ? 999 : block.getDisplayOrder()
+                ))
+                .toList()
+        );
+        Long auditLogId = auditLogService.recordAndReturnId(
             user.id(),
-            "ASSIGNMENT_DRAFT_CLEARED",
+            ACTION_DRAFT_CLEARED,
             "TaskPlanItem",
             task.getId().toString(),
             "SUCCESS"
         );
-        domainEventService.record("AssignmentDraftCleared", "TaskPlanItem", task.getId().toString(), "{}");
+        updateAuditDetail(auditLogId, auditPayload);
+        domainEventService.record("AssignmentDraftCleared", "TaskPlanItem", task.getId().toString(), auditPayload);
 
         return new ClearAssignmentDraftResponse(
             toTaskResponse(task),
             affectedCrewIds,
-            List.of(task.getId())
+            affectedTaskIds,
+            auditLogId
         );
+    }
+
+    private void updateAuditDetail(Long auditLogId, String detailJson) {
+        if (auditLogId == null) {
+            return;
+        }
+        jdbcTemplate.update("UPDATE audit_log SET detail_json = ? WHERE id = ?", detailJson, auditLogId);
+    }
+
+    private String draftAuditPayload(
+        String actionType,
+        Long rosterVersionId,
+        List<Long> affectedCrewIds,
+        List<Long> affectedTaskIds,
+        java.time.Instant affectedWindowStartUtc,
+        java.time.Instant affectedWindowEndUtc,
+        List<DesiredAssignment> assignments
+    ) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("actionType", actionType);
+        payload.put("rosterVersionId", rosterVersionId);
+        payload.put("affectedCrewIds", affectedCrewIds);
+        payload.put("affectedTaskIds", affectedTaskIds);
+        payload.put("affectedWindow", Map.of(
+            "startUtc", affectedWindowStartUtc,
+            "endUtc", affectedWindowEndUtc
+        ));
+        payload.put(
+            "assignments",
+            assignments.stream()
+                .sorted(Comparator.comparingInt(DesiredAssignment::displayOrder))
+                .map(assignment -> {
+                    Map<String, Object> assignmentPayload = new LinkedHashMap<>();
+                    assignmentPayload.put("crewId", assignment.crew().getId());
+                    assignmentPayload.put("assignmentRole", assignment.assignmentRole());
+                    assignmentPayload.put("displayOrder", assignment.displayOrder());
+                    return assignmentPayload;
+                })
+                .toList()
+        );
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Failed to serialize assignment draft audit payload", exception);
+        }
     }
 
     private List<TimelineBlock> createDraftBlocks(
@@ -262,6 +346,7 @@ public class AssignmentService {
         boolean cancelled = STATUS_CANCELLED.equals(task.getStatus());
         boolean canEdit = user.role() == UserRole.DISPATCHER && !archiveExists && !published && !cancelled;
         boolean canClearDraft = canEdit && DRAFT_ASSIGNED_STATUS.equals(task.getStatus());
+        String readOnlyReason = canEdit ? null : readOnlyReason(user, archiveExists, published, cancelled);
         List<TimelineBlock> taskWindowBlocks = assignmentEligibilityService.taskWindowBlocks(task);
         return new AssignmentTaskDetailResponse(
             toTaskResponse(task),
@@ -273,12 +358,12 @@ public class AssignmentService {
             blocks.stream().map(this::toCrewAssignmentResponse).toList(),
             blocks.stream().map(this::toBlockResponse).toList(),
             assignmentRequirements(task),
-            assignmentDraftContextService.runtimeSummary(task, canEdit),
+            assignmentDraftContextService.runtimeSummary(task, readOnlyReason),
             assignmentDraftContextService.issueSummary(task.getId()),
             assignmentDraftContextService.draftAuditSummary(task.getId()),
             canClearDraft,
             canEdit,
-            canEdit ? null : readOnlyReason(user, archiveExists, published, cancelled)
+            readOnlyReason
         );
     }
 
@@ -428,7 +513,7 @@ public class AssignmentService {
     }
 
     private boolean hasBlockingArchiveCase(TaskPlanItem task) {
-        return STATUS_PUBLISHED.equals(task.getStatus()) && archiveCaseRepository.existsByFlightId(task.getId());
+        return archiveCaseRepository.existsByFlightId(task.getId());
     }
 
     private List<AssignmentRequirementResponse> assignmentRequirements(TaskPlanItem task) {

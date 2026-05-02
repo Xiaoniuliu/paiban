@@ -1240,6 +1240,8 @@ The issue-handling module should not own:
 - final publish-result presentation structure,
 - timeline-specific rendering behavior.
 
+It may launch the shared assignment drawer as a repair context, but issue closure/confirmation must remain an issue-handling workflow decision, not a side effect of saving or clearing a draft assignment.
+
 ### 10.5 Publish-result module
 
 The publish-result module owns:
@@ -1250,12 +1252,16 @@ The publish-result module owns:
 - crew-oriented published result view,
 - Excel export.
 
+Excel export is an action inside the publish-result module. It should not be expanded into a separate first-stage `结果导出` module when the publish area is touched.
+
 The publish-result module may read:
 
 - task facts,
 - cleared draft roster facts,
 - issue state,
 - publish version/result records.
+
+Current implementation note: some issue/publish backend services still live under the historical `workbench` package while the route/UI ownership is being moved. Treat that package placement as Phase 5 replacement debt, not as permission to reattach publish or issue ownership to the workbench UI.
 
 The publish-result module may change:
 
@@ -1629,17 +1635,22 @@ Completion gate:
 
 - draft rostering closed loop works from task facts and crew facts without requiring legacy timeline-derived truth
 
-Current entry status as of 2026-05-01:
+Closure status as of 2026-05-01:
 
-- Phase 3 can start from `DraftRosteringPage` and `AssignmentDrawer` as the only formal draft-editing path.
+- Phase 3 draft rostering migration is closed for the pre-rule-engine scope.
+- `DraftRosteringPage` and `AssignmentDrawer` are the only formal draft-editing path.
+- The draft queue/detail contract now exposes backend-owned `runtimeSummary`, `issueSummary`, and `draftAuditSummary` instead of requiring page-local or timeline-derived inference.
+- Candidate eligibility, blocked reasons, save draft, clear draft, extra crew rows, and save/clear audit evidence are covered by assignment integration tests and Playwright real-click checks.
 - Timeline and workbench views are display-only and no longer open assignment, archive, or run-day business drawers from color-block clicks.
 - Old workbench overlap was removed from the active path:
   - `Pages.tsx` is now only a thin export/view wrapper.
   - `待排航班` compatibility routes land on the formal draft rostering page.
-  - `校验与发布` compatibility routes land on the formal publish-result page.
+  - `校验与发布` compatibility routes render handoff pages instead of owning publish workflow.
+  - publish remains under `发布结果`; export is only a button/action inside `发布结果`, not a separate active module.
   - `飞后归档` is owned by the validation/archive module.
   - `/rostering-workbench/run-day-adjustments` renders a retired compatibility page with no timeline or edit controls.
 - Phase 3 must not reconnect run-day adjustment, archive entry, or publish behavior through the workbench or timeline.
+- Next work should move to the rule-engine track, using the closed draft/task/crew facts as inputs.
 
 ### 12.5 Phase 4: Timeline downgrade to display adapter
 
@@ -1667,7 +1678,9 @@ Completion gate:
 Current status:
 
 - The display-adapter downgrade has already been pulled forward as Phase 2.5 preflight work.
-- The remaining Phase 3 rule is to preserve that boundary while extending draft rostering behavior: timeline may display backend status/rule-hit projections, but it must not generate, promote, or edit assignment state.
+- Phase 4 is closed for the current scope: timeline may display backend status/rule-hit projections, but it must not generate, promote, or edit assignment state.
+- Workbench timeline loading must not trigger archive synchronization or other write-side refresh operations; archive sync belongs to the archive module.
+- The remaining rule for later phases is preservation, not new Phase 4 implementation: rule-engine and publish work must keep timeline as a read-only projection.
 
 ### 12.6 Phase 5: Issue-handling and publish replacement
 

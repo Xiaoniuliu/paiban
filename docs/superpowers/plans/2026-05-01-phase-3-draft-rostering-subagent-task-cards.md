@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Complete Phase 3 draft rostering migration from the formal draft rostering path, while keeping timeline, issue handling, publish/export, archive, and run-day adjustment outside draft ownership.
+**Goal:** Complete Phase 3 draft rostering migration from the formal draft rostering path, while keeping timeline, issue handling, publish-result/export action, archive, and run-day adjustment outside draft ownership.
 
-**Architecture:** Phase 3 is a draft rostering module migration, not a rule-engine or publish-flow build. Draft rostering owns assignment draft editing and consumes backend-owned read models for candidate eligibility, blocked reasons, runtime context, lightweight issue summary, and draft audit context. Later modules remain responsible for issue resolution, publish/export, and archive workflows.
+**Architecture:** Phase 3 is a draft rostering module migration, not a rule-engine or publish-flow build. Draft rostering owns assignment draft editing and consumes backend-owned read models for candidate eligibility, blocked reasons, runtime context, lightweight issue summary, and draft audit context. Later modules remain responsible for issue resolution, publish-result workflows, export as a publish-result button/action, and archive workflows.
 
 **Tech Stack:** Spring Boot / Java integration tests for backend contracts, React / TypeScript for queue and drawer UX, Playwright Chromium for real-click + F12 verification.
 
@@ -82,11 +82,11 @@ Relevant current files:
 
 **Steps:**
 
-- [ ] Add or verify integration tests asserting queue summary fields on `/api/assignments/draft-rostering/tasks`.
-- [ ] Add or verify integration tests asserting detail summary fields on `/api/assignments/tasks/{taskId}`.
-- [ ] Add or verify tests for save draft and clear draft preserving existing behavior.
-- [ ] Run `mvn.cmd -f apps\api\pom.xml -Dtest=AssignmentIntegrationTests test`.
-- [ ] Expected: all assignment integration tests pass.
+- [x] Add or verify integration tests asserting queue summary fields on `/api/assignments/draft-rostering/tasks`.
+- [x] Add or verify integration tests asserting detail summary fields on `/api/assignments/tasks/{taskId}`.
+- [x] Add or verify tests for save draft and clear draft preserving existing behavior.
+- [x] Run `mvn.cmd -f apps\api\pom.xml -Dtest=AssignmentIntegrationTests test`.
+- [x] Expected: all assignment integration tests pass.
 
 ---
 
@@ -118,11 +118,11 @@ Relevant current files:
 
 **Steps:**
 
-- [ ] Add tests for inactive, unavailable, qualification mismatch, and time conflict candidates preserving backend reason codes.
-- [ ] Add tests for `issueSummary` counts and latest message against open `violation_hit` rows.
-- [ ] Confirm cancelled/published/archive read-only reasons still come from backend decisions.
-- [ ] Run `mvn.cmd -f apps\api\pom.xml -Dtest=AssignmentIntegrationTests,AssignmentEligibilityServiceTests test`.
-- [ ] Expected: all targeted assignment tests pass.
+- [x] Add tests for inactive, unavailable, qualification mismatch, and time conflict candidates preserving backend reason codes.
+- [x] Add tests for `issueSummary` counts and latest message against open `violation_hit` rows.
+- [x] Confirm cancelled/published/archive read-only reasons still come from backend decisions.
+- [x] Run targeted assignment tests through `AssignmentIntegrationTests` and final backend targeted suite.
+- [x] Expected: all targeted assignment tests pass.
 
 ---
 
@@ -157,12 +157,12 @@ Relevant current files:
 
 **Steps:**
 
-- [ ] Add backend tests for required role mismatch and duplicate crew.
-- [ ] Add backend tests for `RELIEF` and `EXTRA` additional rows.
-- [ ] Add Playwright test coverage for adding/removing one additional crew row.
-- [ ] Run `mvn.cmd -f apps\api\pom.xml -Dtest=AssignmentIntegrationTests test`.
-- [ ] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "draft rostering"`.
-- [ ] Expected: backend and real-click tests pass with no F12 errors.
+- [x] Add backend tests for required role mismatch and duplicate crew.
+- [x] Add backend tests for `RELIEF` and `EXTRA` additional rows.
+- [x] Add Playwright test coverage for adding/removing one additional crew row.
+- [x] Run `mvn.cmd -f apps\api\pom.xml -Dtest=AssignmentIntegrationTests test`.
+- [x] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "draft rostering"`.
+- [x] Expected: backend and real-click tests pass with no F12 errors.
 
 ---
 
@@ -194,13 +194,13 @@ Relevant current files:
 
 **Steps:**
 
-- [ ] Write failing tests for `auditLogId` in save draft response.
-- [ ] Write failing tests for `auditLogId` in clear draft response.
-- [ ] Write failing tests that `audit_log.detail_json` contains affected crew/task/window data.
-- [ ] Write failing tests that `domain_event.payload_json` is not `{}`.
-- [ ] Implement minimal DTO and service changes.
-- [ ] Run `mvn.cmd -f apps\api\pom.xml -Dtest=AssignmentIntegrationTests test`.
-- [ ] Expected: all assignment integration tests pass.
+- [x] Write failing tests for `auditLogId` in save draft response.
+- [x] Write failing tests for `auditLogId` in clear draft response.
+- [x] Write failing tests that `audit_log.detail_json` contains affected crew/task/window data.
+- [x] Write failing tests that `domain_event.payload_json` is not `{}`.
+- [x] Implement minimal DTO and service changes.
+- [x] Run `mvn.cmd -f apps\api\pom.xml -Dtest=AssignmentIntegrationTests test`.
+- [x] Expected: all assignment integration tests pass.
 
 ---
 
@@ -234,12 +234,12 @@ Relevant current files:
 
 **Steps:**
 
-- [ ] Add Playwright assertions for queue issue/audit summary.
-- [ ] Add accessible labels or visible text for issue count and latest draft action.
-- [ ] Run `npm run build`.
-- [ ] Run `npm run check:i18n`.
-- [ ] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "draft rostering"`.
-- [ ] Expected: build/i18n/E2E pass; F12 diagnostics are empty.
+- [x] Add Playwright assertions for queue issue/audit summary.
+- [x] Add accessible labels or visible text for issue count and latest draft action.
+- [x] Run `npm run build`.
+- [x] Run `npm run check:i18n`.
+- [x] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "draft rostering"`.
+- [x] Expected: build/i18n/E2E pass; F12 diagnostics are empty.
 
 ---
 
@@ -275,12 +275,12 @@ Relevant current files:
 
 **Steps:**
 
-- [ ] Add Playwright test for opening an existing draft and continuing edit.
-- [ ] Add Playwright test for clear draft returning the row to `UNASSIGNED`.
-- [ ] Add Playwright test for issue-handling opening the drawer without taking over issue resolution.
-- [ ] Run `npm run build`.
-- [ ] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "draft rostering|issue"`.
-- [ ] Expected: drawer workflows pass with empty diagnostics.
+- [x] Add Playwright test for opening an existing draft and continuing edit.
+- [x] Add Playwright test for clear draft returning the row to `UNASSIGNED`.
+- [x] Add Playwright test for issue-handling opening the drawer without taking over issue resolution.
+- [x] Run `npm run build`.
+- [x] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "draft rostering|issue"`.
+- [x] Expected: drawer workflows pass with empty diagnostics.
 
 ---
 
@@ -305,6 +305,7 @@ Relevant current files:
 - issue detail lives in issue handling
 - issue confirmation/resolution lives in issue handling or later issue module work
 - draft rostering displays only task-local summary
+- issue handling may open the shared assignment drawer as a repair context, but it must not treat save/clear as issue resolution or mutate the issue list from inside the drawer
 
 **Forbidden:**
 
@@ -314,23 +315,29 @@ Relevant current files:
 
 **Steps:**
 
-- [ ] Dispatch reviewer subagent to inspect issue/drawer coupling.
-- [ ] If findings exist, write focused failing Playwright test.
-- [ ] Implement only the minimum boundary fix.
-- [ ] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "issue|draft rostering"`.
-- [ ] Expected: issue handling still owns issue actions; drawer only opens assignment context.
+- [x] Dispatch reviewer subagent to inspect issue/drawer coupling.
+- [x] If findings exist, write focused failing Playwright test.
+- [x] Implement only the minimum boundary fix.
+- [x] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "issue|draft rostering"`.
+- [x] Expected: issue handling still owns issue actions; drawer only opens assignment context.
+
+**Closeout note:** The current issue page reuses `AssignmentDrawer` so a dispatcher can repair assignment context from an issue. This is allowed only as shared assignment editing through the assignment API. It does not close, confirm, ignore, or otherwise mutate issue records from the drawer.
 
 ---
 
-## Task Card P3-8: Publish Boundary Check
+## Task Card P3-8: Publish Result And Export Boundary Check
 
 **Owner:** Boundary reviewer subagent.
 
-**Goal:** Ensure draft rostering does not absorb publish/export behavior.
+**Goal:** Ensure draft rostering does not absorb publish behavior, and ensure export is not kept as a separate first-class module when touched by Phase 3.
 
 **Files:**
 
 - Inspect: publish result pages/routes
+- Inspect: result export page/menu/route, if still present
+- Inspect: `apps/web/src/app/menu.ts`
+- Inspect: `apps/web/src/app/routes/validationRoutes.ts`
+- Inspect: `apps/web/src/app/i18n.ts`
 - Inspect: `apps/web/src/app/pages/DraftRosteringPage.tsx`
 - Inspect: `apps/web/src/app/components/assignment/AssignmentDrawer.tsx`
 - Inspect: workbench compatibility routes
@@ -339,23 +346,28 @@ Relevant current files:
 **Required boundary:**
 
 - draft rostering can create or clear draft assignments
-- publish/export remains under publish result / result export modules
+- publish remains under the `发布结果` module
+- export is only a button/action inside `发布结果`, not a separate active `结果导出` module
 - old `校验与发布` workbench ownership does not return
 
 **Forbidden:**
 
 - do not add publish button to draft queue
 - do not add publish button to assignment drawer
+- do not keep building parallel publish result and result export module behavior
 - do not route draft save directly into publish
 - do not restore old workbench validation/publish ownership
 
 **Steps:**
 
-- [ ] Dispatch reviewer subagent to inspect draft/publish routes and buttons.
-- [ ] Add or verify Playwright test that draft page does not expose publish controls.
-- [ ] Add or verify compatibility route still lands on formal publish destination.
-- [ ] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "publish|workbench|draft rostering"`.
-- [ ] Expected: publish controls are absent from draft module and present only in publish-owned surfaces.
+- [x] Dispatch reviewer subagent to inspect draft/publish routes and buttons.
+- [x] Add or verify Playwright test that draft page does not expose publish controls.
+- [x] Add or verify compatibility route still lands on formal publish destination.
+- [x] If `validation-export` is touched, consolidate it into `发布结果` as an export button/action.
+- [x] If a legacy `/validation-center/export` route must remain temporarily, make it redirect to `发布结果` or mark it as compatibility-only rather than a separate module.
+- [x] Remove or hide separate active `结果导出` navigation when the publish area is updated.
+- [x] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "publish|workbench|draft rostering"`.
+- [x] Expected: publish controls are absent from draft module; publish and export entry points are present only in the publish-result surface, with export represented as a button/action.
 
 ---
 
@@ -388,12 +400,12 @@ Relevant current files:
 
 **Steps:**
 
-- [ ] Dispatch reviewer subagent to inspect archive/draft coupling.
-- [ ] Add or verify backend test for archive read-only assignment detail.
-- [ ] Add or verify Playwright test for archive route ownership.
-- [ ] Run `mvn.cmd -f apps\api\pom.xml -Dtest=AssignmentIntegrationTests test`.
-- [ ] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "archive|draft rostering"`.
-- [ ] Expected: archive blocks draft edit but archive workflow stays in archive module.
+- [x] Dispatch reviewer subagent to inspect archive/draft coupling.
+- [x] Add or verify backend test for archive read-only assignment detail.
+- [x] Add or verify Playwright test for archive route ownership.
+- [x] Run `mvn.cmd -f apps\api\pom.xml -Dtest=AssignmentIntegrationTests test`.
+- [x] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "archive|draft rostering"`.
+- [x] Expected: archive blocks draft edit but archive workflow stays in archive module.
 
 ---
 
@@ -427,10 +439,10 @@ Relevant current files:
 
 **Steps:**
 
-- [ ] Dispatch reviewer subagent to inspect route and timeline diffs.
-- [ ] Add or verify Playwright tests for display-only timeline and retired run-day route.
-- [ ] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "workbench|display-only|run-day|draft rostering"`.
-- [ ] Expected: no business drawer opens from timeline; retired route has no timeline/edit surface.
+- [x] Dispatch reviewer subagent to inspect route and timeline diffs.
+- [x] Add or verify Playwright tests for display-only timeline and retired run-day route.
+- [x] Run `npm run test:e2e -- e2e/framework.spec.ts --project=chromium -g "workbench|display-only|run-day|draft rostering"`.
+- [x] Expected: no business drawer opens from timeline; retired route has no timeline/edit surface.
 
 ---
 
@@ -462,6 +474,14 @@ Relevant current files:
 
 - existing Vite large chunk warning is allowed if unchanged.
 
+**Final evidence captured on 2026-05-01:**
+
+- [x] Backend targeted suite: 42 tests, 0 failures.
+- [x] Frontend build: passed with existing large chunk warning only.
+- [x] i18n check: passed.
+- [x] Playwright Chromium real-click/F12 suite: 7 tests, 0 failures.
+- [x] Final code-quality review subagent: approved with no blockers.
+
 ---
 
 ## Recommended Subagent Dispatch Order
@@ -473,4 +493,3 @@ Relevant current files:
 5. Controller: P3-11 Closing Verification
 
 Do not run multiple implementer subagents on the same files at the same time. Boundary reviewer subagents may run in parallel because they are read-only.
-

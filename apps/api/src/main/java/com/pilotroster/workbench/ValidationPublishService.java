@@ -15,10 +15,7 @@ import com.pilotroster.workbench.ValidationPublishDtos.PublishRosterRequest;
 import com.pilotroster.workbench.ValidationPublishDtos.ValidationIssueResponse;
 import com.pilotroster.workbench.ValidationPublishDtos.ValidationPublishSummaryResponse;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -38,9 +35,6 @@ public class ValidationPublishService {
     private static final String STATUS_BLOCKED = "BLOCKED";
     private static final String STATUS_NEEDS_REVIEW = "NEEDS_REVIEW";
     private static final String STATUS_WARNING = "WARNING";
-    private static final String ROLE_PIC = "PIC";
-    private static final String ROLE_FO = "FO";
-    private static final String BLOCK_FLIGHT = "FLIGHT";
 
     private static final Set<String> PUBLISHABLE_STATUSES = Set.of(
         STATUS_ASSIGNED_DRAFT,
@@ -218,118 +212,6 @@ public class ValidationPublishService {
             hit.status(),
             startUtc,
             endUtc
-        );
-    }
-
-    private List<ValidationIssueResponse> buildIssues(
-        List<TaskPlanItem> tasks,
-        Map<Long, List<TimelineBlock>> blocksByTaskId
-    ) {
-        List<ValidationIssueResponse> issues = new ArrayList<>();
-        for (TaskPlanItem task : tasks) {
-            String status = task.getStatus();
-            if (STATUS_UNASSIGNED.equals(status)) {
-                issues.add(issue(
-                    task,
-                    "BLOCK",
-                    "CREW_ASSIGNMENT_REQUIRED",
-                    "PIC / FO assignment required",
-                    "The flight remains unassigned. Save a draft assignment before publishing.",
-                    "ASSIGNMENT_DRAWER",
-                    "OPEN"
-                ));
-                continue;
-            }
-            if (STATUS_VALIDATION_FAILED.equals(status) || STATUS_BLOCKED.equals(status)) {
-                issues.add(issue(
-                    task,
-                    "BLOCK",
-                    "TASK_STATUS_BLOCKED",
-                    "Task status is blocked",
-                    "Fix the assignment or resolve the rule hit, then run validation again.",
-                    "STATUS_REPAIR",
-                    "OPEN"
-                ));
-                continue;
-            }
-            if (requiresCrewPair(status) && !hasRequiredCrewPair(blocksByTaskId.getOrDefault(task.getId(), List.of()))) {
-                issues.add(issue(
-                    task,
-                    "BLOCK",
-                    "CREW_PAIR_REQUIRED",
-                    "Required crew pair is missing",
-                    "Assigned flights must have both PIC and FO timeline blocks.",
-                    "ASSIGNMENT_DRAWER",
-                    "OPEN"
-                ));
-                continue;
-            }
-            if (STATUS_NEEDS_REVIEW.equals(status) || STATUS_WARNING.equals(status)) {
-                issues.add(issue(
-                    task,
-                    "WARNING",
-                    "MANAGER_REVIEW_REQUIRED",
-                    "Manager review required",
-                    "This flight requires manager confirmation or an exception flow before publishing.",
-                    "REVIEW",
-                    "OPEN"
-                ));
-            }
-        }
-        return issues.stream()
-            .sorted(Comparator.comparing(ValidationIssueResponse::severity)
-                .thenComparing(ValidationIssueResponse::startUtc)
-                .thenComparing(ValidationIssueResponse::taskCode))
-            .toList();
-    }
-
-    private boolean requiresCrewPair(String status) {
-        return STATUS_ASSIGNED.equals(status)
-            || STATUS_ASSIGNED_DRAFT.equals(status)
-            || STATUS_PUBLISHED.equals(status)
-            || STATUS_NEEDS_REVIEW.equals(status)
-            || STATUS_WARNING.equals(status);
-    }
-
-    private boolean hasRequiredCrewPair(List<TimelineBlock> blocks) {
-        boolean hasPic = blocks.stream()
-            .filter(block -> BLOCK_FLIGHT.equals(block.getBlockType()))
-            .anyMatch(block -> ROLE_PIC.equals(block.getAssignmentRole()));
-        boolean hasFo = blocks.stream()
-            .filter(block -> BLOCK_FLIGHT.equals(block.getBlockType()))
-            .anyMatch(block -> ROLE_FO.equals(block.getAssignmentRole()));
-        return hasPic && hasFo;
-    }
-
-    private ValidationIssueResponse issue(
-        TaskPlanItem task,
-        String severity,
-        String ruleId,
-        String ruleTitle,
-        String message,
-        String actionType,
-        String status
-    ) {
-        return new ValidationIssueResponse(
-            task.getId() + ":" + ruleId,
-            null,
-            task.getId(),
-            null,
-            null,
-            "TASK",
-            task.getId(),
-            task.getTaskCode(),
-            route(task),
-            task.getScheduledStartUtc(),
-            task.getScheduledEndUtc(),
-            severity,
-            ruleId,
-            ruleTitle,
-            message,
-            actionType,
-            status,
-            task.getScheduledStartUtc(),
-            task.getScheduledEndUtc()
         );
     }
 
