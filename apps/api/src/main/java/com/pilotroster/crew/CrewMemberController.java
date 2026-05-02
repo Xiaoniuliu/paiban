@@ -3,10 +3,15 @@ package com.pilotroster.crew;
 import com.pilotroster.auth.AuthenticatedUser;
 import com.pilotroster.auth.UserRole;
 import com.pilotroster.common.ApiResponse;
+import com.pilotroster.rule.RuleDerivedFactService;
+import com.pilotroster.rule.RuleDerivedFacts;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
+import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,20 +29,39 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/crew-members")
 public class CrewMemberController {
 
+    private static final BigDecimal MINUTES_PER_HOUR = BigDecimal.valueOf(60);
+    private static final int ROLLING_HOUR_SCALE = 2;
+
     private final CrewMemberRepository crewMemberRepository;
     private final CrewQualificationRepository crewQualificationRepository;
+    private final RuleDerivedFactService ruleDerivedFactService;
+    private final JdbcTemplate jdbcTemplate;
+
     public CrewMemberController(
         CrewMemberRepository crewMemberRepository,
-        CrewQualificationRepository crewQualificationRepository
+        CrewQualificationRepository crewQualificationRepository,
+        RuleDerivedFactService ruleDerivedFactService,
+        JdbcTemplate jdbcTemplate
     ) {
         this.crewMemberRepository = crewMemberRepository;
         this.crewQualificationRepository = crewQualificationRepository;
+        this.ruleDerivedFactService = ruleDerivedFactService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN')")
-    public ApiResponse<List<CrewMember>> list() {
-        return ApiResponse.ok(crewMemberRepository.findAll());
+    public ApiResponse<List<CrewMemberResponse>> list() {
+        Long rosterVersionId = latestRosterVersionId();
+        RuleDerivedFacts facts = rosterVersionId == null
+            ? null
+            : ruleDerivedFactService.buildLatestRosterFacts(rosterVersionId);
+        Map<Long, RuleDerivedFacts.CrewHourFact> crewHourFacts = facts == null
+            ? Map.of()
+            : facts.crewHourFactsByCrewId();
+        return ApiResponse.ok(crewMemberRepository.findAll().stream()
+            .map(crew -> toResponse(crew, crewHourFacts.get(crew.getId())))
+            .toList());
     }
 
     @GetMapping("/{crewId}")
@@ -240,6 +264,45 @@ public class CrewMemberController {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Crew member not found"));
     }
 
+    private Long latestRosterVersionId() {
+        List<Long> rosterVersionIds = jdbcTemplate.query(
+            "SELECT id FROM roster_version ORDER BY id DESC LIMIT 1",
+            (rs, rowNum) -> rs.getLong("id")
+        );
+        return rosterVersionIds.isEmpty() ? null : rosterVersionIds.get(0);
+    }
+
+    private CrewMemberResponse toResponse(CrewMember crew, RuleDerivedFacts.CrewHourFact crewHourFact) {
+        return new CrewMemberResponse(
+            crew.getId(),
+            crew.getCrewCode(),
+            crew.getEmployeeNo(),
+            crew.getNameZh(),
+            crew.getNameEn(),
+            crew.getRoleCode(),
+            crew.getRankCode(),
+            crew.getHomeBase(),
+            crew.getAircraftQualification(),
+            crew.getAcclimatizationStatus(),
+            crew.getBodyClockTimezone(),
+            crew.getNormalCommuteMinutes(),
+            crew.getExternalEmploymentFlag(),
+            crew.getAvailabilityStatus(),
+            crew.getStatus(),
+            crewHourFact == null ? crew.getRollingFlightHours28d() : minutesToHours(crewHourFact.rolling28dFlightMinutes()),
+            crewHourFact == null ? crew.getRollingDutyHours28d() : minutesToHours(crewHourFact.rolling28dDutyMinutes()),
+            crewHourFact == null ? crew.getRollingDutyHours7d() : minutesToHours(crewHourFact.rolling7dDutyMinutes()),
+            crewHourFact == null ? crew.getRollingDutyHours14d() : minutesToHours(crewHourFact.rolling14dDutyMinutes()),
+            crewHourFact == null ? crew.getRollingFlightHours12m() : minutesToHours(crewHourFact.rolling12mToPreviousMonthFlightMinutes()),
+            crew.getLatestActualFdpHours(),
+            crew.getLatestActualFdpSource()
+        );
+    }
+
+    private BigDecimal minutesToHours(long minutes) {
+        return BigDecimal.valueOf(minutes).divide(MINUTES_PER_HOUR, ROLLING_HOUR_SCALE, RoundingMode.HALF_UP);
+    }
+
     private void applyCrewProfileWrite(CrewMember crew, CrewProfileWriteRequest input) {
         crew.setCrewCode(input.crewCode());
         crew.setEmployeeNo(input.employeeNo());
@@ -337,6 +400,32 @@ public class CrewMemberController {
         String bodyClockTimezone,
         Integer normalCommuteMinutes,
         Boolean externalEmploymentFlag
+    ) {
+    }
+
+    record CrewMemberResponse(
+        Long id,
+        String crewCode,
+        String employeeNo,
+        String nameZh,
+        String nameEn,
+        String roleCode,
+        String rankCode,
+        String homeBase,
+        String aircraftQualification,
+        String acclimatizationStatus,
+        String bodyClockTimezone,
+        Integer normalCommuteMinutes,
+        Boolean externalEmploymentFlag,
+        String availabilityStatus,
+        String status,
+        BigDecimal rollingFlightHours28d,
+        BigDecimal rollingDutyHours28d,
+        BigDecimal rollingDutyHours7d,
+        BigDecimal rollingDutyHours14d,
+        BigDecimal rollingFlightHours12m,
+        BigDecimal latestActualFdpHours,
+        String latestActualFdpSource
     ) {
     }
 }

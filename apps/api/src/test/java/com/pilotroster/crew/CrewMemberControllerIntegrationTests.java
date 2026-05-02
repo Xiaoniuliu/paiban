@@ -1,5 +1,6 @@
 package com.pilotroster.crew;
 
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -35,7 +36,98 @@ class CrewMemberControllerIntegrationTests {
     @AfterEach
     void cleanTestRows() {
         jdbcTemplate.update("DELETE FROM crew_external_work WHERE description = 'TEST-CREW-retired'");
-        jdbcTemplate.update("DELETE FROM crew_member WHERE crew_code = 'TESTCREWWB01'");
+        jdbcTemplate.update("DELETE FROM crew_member WHERE crew_code IN ('TESTCREWWB01', 'TESTCREWWB02')");
+    }
+
+    @Test
+    void listUsesRuleDerivedCrewHourFactsForRollingHourCompatibilityFields() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+
+        MvcResult activeCrewResult = mockMvc.perform(post("/api/crew-members")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewCode": "TESTCREWWB01",
+                      "employeeNo": "TESTCREWWB01",
+                      "nameZh": "测试机组",
+                      "nameEn": "Test Crew Active",
+                      "homeBase": "MFM",
+                      "roleCode": "FIRST_OFFICER",
+                      "rankCode": "FO",
+                      "aircraftQualification": "A330",
+                      "acclimatizationStatus": "ACCLIMATIZED",
+                      "bodyClockTimezone": "Asia/Macau",
+                      "normalCommuteMinutes": 20,
+                      "externalEmploymentFlag": false
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long activeCrewId = extractLong(activeCrewResult.getResponse().getContentAsString(), "\"id\":");
+
+        MvcResult inactiveCrewResult = mockMvc.perform(post("/api/crew-members")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewCode": "TESTCREWWB02",
+                      "employeeNo": "TESTCREWWB02",
+                      "nameZh": "测试机组停用",
+                      "nameEn": "Test Crew Inactive",
+                      "homeBase": "MFM",
+                      "roleCode": "FIRST_OFFICER",
+                      "rankCode": "FO",
+                      "aircraftQualification": "A330",
+                      "acclimatizationStatus": "ACCLIMATIZED",
+                      "bodyClockTimezone": "Asia/Macau",
+                      "normalCommuteMinutes": 20,
+                      "externalEmploymentFlag": false
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long inactiveCrewId = extractLong(inactiveCrewResult.getResponse().getContentAsString(), "\"id\":");
+
+        jdbcTemplate.update(
+            """
+            UPDATE crew_member
+            SET rolling_flight_hours_28d = 10.25,
+                rolling_duty_hours_28d = 20.50,
+                rolling_duty_hours_7d = 7.25,
+                rolling_duty_hours_14d = 14.50,
+                rolling_flight_hours_12m = 120.75,
+                latest_actual_fdp_hours = 8.25,
+                latest_actual_fdp_source = 'SYSTEM_FEED',
+                status = 'ACTIVE'
+            WHERE id = ?
+            """,
+            activeCrewId
+        );
+        jdbcTemplate.update(
+            """
+            UPDATE crew_member
+            SET rolling_flight_hours_28d = 99.25,
+                rolling_duty_hours_28d = 98.50,
+                rolling_duty_hours_7d = 97.25,
+                rolling_duty_hours_14d = 96.50,
+                rolling_flight_hours_12m = 995.75,
+                status = 'INACTIVE'
+            WHERE id = ?
+            """,
+            inactiveCrewId
+        );
+
+        mockMvc.perform(get("/api/crew-members").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours28d", activeCrewId).value(contains(10.25)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours28d", activeCrewId).value(contains(20.50)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours7d", activeCrewId).value(contains(7.25)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours14d", activeCrewId).value(contains(14.50)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours12m", activeCrewId).value(contains(120.75)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].latestActualFdpHours", activeCrewId).value(contains(8.25)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].latestActualFdpSource", activeCrewId).value(contains("SYSTEM_FEED")))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours28d", inactiveCrewId).value(contains(99.25)));
     }
 
     @Test
