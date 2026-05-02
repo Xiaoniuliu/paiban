@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,30 +34,21 @@ public class CrewMemberController {
     private final CrewMemberRepository crewMemberRepository;
     private final CrewQualificationRepository crewQualificationRepository;
     private final RuleDerivedFactService ruleDerivedFactService;
-    private final JdbcTemplate jdbcTemplate;
 
     public CrewMemberController(
         CrewMemberRepository crewMemberRepository,
         CrewQualificationRepository crewQualificationRepository,
-        RuleDerivedFactService ruleDerivedFactService,
-        JdbcTemplate jdbcTemplate
+        RuleDerivedFactService ruleDerivedFactService
     ) {
         this.crewMemberRepository = crewMemberRepository;
         this.crewQualificationRepository = crewQualificationRepository;
         this.ruleDerivedFactService = ruleDerivedFactService;
-        this.jdbcTemplate = jdbcTemplate;
     }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('DISPATCHER', 'OPS_MANAGER', 'ADMIN')")
     public ApiResponse<List<CrewMemberResponse>> list() {
-        Long rosterVersionId = latestRosterVersionId();
-        RuleDerivedFacts facts = rosterVersionId == null
-            ? null
-            : ruleDerivedFactService.buildLatestRosterFacts(rosterVersionId);
-        Map<Long, RuleDerivedFacts.CrewHourFact> crewHourFacts = facts == null
-            ? Map.of()
-            : facts.crewHourFactsByCrewId();
+        Map<Long, RuleDerivedFacts.CrewHourFact> crewHourFacts = ruleDerivedFactService.buildCrewHourCompatibilityFacts();
         return ApiResponse.ok(crewMemberRepository.findAll().stream()
             .map(crew -> toResponse(crew, crewHourFacts.get(crew.getId())))
             .toList());
@@ -264,15 +254,10 @@ public class CrewMemberController {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Crew member not found"));
     }
 
-    private Long latestRosterVersionId() {
-        List<Long> rosterVersionIds = jdbcTemplate.query(
-            "SELECT id FROM roster_version ORDER BY id DESC LIMIT 1",
-            (rs, rowNum) -> rs.getLong("id")
-        );
-        return rosterVersionIds.isEmpty() ? null : rosterVersionIds.get(0);
-    }
-
-    private CrewMemberResponse toResponse(CrewMember crew, RuleDerivedFacts.CrewHourFact crewHourFact) {
+    private CrewMemberResponse toResponse(
+        CrewMember crew,
+        RuleDerivedFacts.CrewHourFact crewHourFact
+    ) {
         return new CrewMemberResponse(
             crew.getId(),
             crew.getCrewCode(),

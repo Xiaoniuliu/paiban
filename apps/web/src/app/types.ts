@@ -168,7 +168,7 @@ export interface TaskAssignmentReadiness {
 }
 
 export interface TaskAssignmentTaskReadiness {
-  taskId: number;
+  taskId: number | null;
   taskCode: string;
   requiresCrewAssignment: boolean;
   assignmentRequirements: TaskAssignmentRequirement[];
@@ -315,8 +315,8 @@ export interface AssignmentTimelineBlock {
   crewMemberId: number;
   taskPlanItemId: number;
   blockType: string;
-  startUtc: string;
-  endUtc: string;
+  startUtc: string | null;
+  endUtc: string | null;
   displayLabel: string;
   status: string;
   assignmentRole: AssignmentRole;

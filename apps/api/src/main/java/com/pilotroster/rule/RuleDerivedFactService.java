@@ -1,5 +1,6 @@
 package com.pilotroster.rule;
 
+import java.util.Map;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 
@@ -24,9 +25,13 @@ public class RuleDerivedFactService {
         Objects.requireNonNull(rosterVersionId, "rosterVersionId");
         return new RuleDerivedFacts(
             rosterVersionId,
-            crewHourFactBuilder.build(rosterVersionId),
+            crewHourFactBuilder.buildProjection(rosterVersionId),
             ddoFactBuilder.build(rosterVersionId),
             fdpRestFactBuilder.build(rosterVersionId)
         );
+    }
+
+    public Map<Long, RuleDerivedFacts.CrewHourFact> buildCrewHourCompatibilityFacts() {
+        return crewHourFactBuilder.buildLatestProjectionOrSnapshot();
     }
 }

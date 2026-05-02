@@ -48,15 +48,18 @@ public class RuleEvaluationService {
     private final JdbcTemplate jdbcTemplate;
     private final TaskPlanItemRepository taskPlanItemRepository;
     private final TimelineBlockRepository timelineBlockRepository;
+    private final RuleDerivedFactService ruleDerivedFactService;
 
     public RuleEvaluationService(
         JdbcTemplate jdbcTemplate,
         TaskPlanItemRepository taskPlanItemRepository,
-        TimelineBlockRepository timelineBlockRepository
+        TimelineBlockRepository timelineBlockRepository,
+        RuleDerivedFactService ruleDerivedFactService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.taskPlanItemRepository = taskPlanItemRepository;
         this.timelineBlockRepository = timelineBlockRepository;
+        this.ruleDerivedFactService = ruleDerivedFactService;
     }
 
     @Transactional
@@ -73,6 +76,7 @@ public class RuleEvaluationService {
         buildPublishGateHits(tasks, hits);
         buildCrewTimeConflictHits(blocks, tasksById, hits);
         buildPhase3FoundationHits(tasks, blocks, blocksByTaskId, tasksById, hits);
+        buildCrewHourLimitHits(ruleDerivedFactService.buildCrewHourCompatibilityFacts(), hits);
 
         Map<String, Long> ruleIdsByRuleId = ruleIdsByRuleId();
         jdbcTemplate.update("DELETE FROM violation_hit WHERE roster_version_id = ?", roster.id());
@@ -261,6 +265,82 @@ public class RuleEvaluationService {
                 ));
             }
         }
+    }
+
+    private void buildCrewHourLimitHits(
+        Map<Long, RuleDerivedFacts.CrewHourFact> crewHourFactsByCrewId,
+        List<RuleHit> hits
+    ) {
+        for (RuleDerivedFacts.CrewHourFact fact : crewHourFactsByCrewId.values()) {
+            addCrewHourLimitHit(
+                hits,
+                fact.crewId(),
+                "RG-HOUR-001",
+                fact.rolling28dFlightMinutes(),
+                6_000,
+                "Rolling 28-day flight minutes exceed the 100-hour limit."
+            );
+            addCrewHourLimitHit(
+                hits,
+                fact.crewId(),
+                "RG-HOUR-002",
+                fact.rolling12mToPreviousMonthFlightMinutes(),
+                54_000,
+                "Rolling 12-month flight minutes to previous month exceed the 900-hour limit."
+            );
+            addCrewHourLimitHit(
+                hits,
+                fact.crewId(),
+                "RG-HOUR-003",
+                fact.rolling7dDutyMinutes(),
+                3_300,
+                "Rolling 7-day duty minutes exceed the 55-hour limit."
+            );
+            addCrewHourLimitHit(
+                hits,
+                fact.crewId(),
+                "RG-HOUR-006",
+                fact.rolling14dDutyMinutes(),
+                5_700,
+                "Rolling 14-day duty minutes exceed the 95-hour limit."
+            );
+            addCrewHourLimitHit(
+                hits,
+                fact.crewId(),
+                "RG-HOUR-007",
+                fact.rolling28dDutyMinutes(),
+                11_400,
+                "Rolling 28-day duty minutes exceed the 190-hour limit."
+            );
+        }
+    }
+
+    private void addCrewHourLimitHit(
+        List<RuleHit> hits,
+        Long crewId,
+        String ruleId,
+        long actualMinutes,
+        long limitMinutes,
+        String message
+    ) {
+        if (actualMinutes <= limitMinutes) {
+            return;
+        }
+        hits.add(new RuleHit(
+            ruleId,
+            "BLOCK",
+            "CREW",
+            crewId,
+            crewId,
+            null,
+            null,
+            null,
+            null,
+            "",
+            "",
+            message + " Actual " + actualMinutes + " minutes, limit " + limitMinutes + " minutes.",
+            "ADJUST_CREW_HOURS"
+        ));
     }
 
     private boolean overlaps(TimelineBlock left, TimelineBlock right) {

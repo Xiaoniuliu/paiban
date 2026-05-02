@@ -274,11 +274,11 @@ function ValidationIssueDetail({
               </div>
               <div className="flex items-start justify-between gap-3">
                 <span className="text-muted-foreground">{t('start')}</span>
-                <span className="text-right"><Timestamp value={issue.startUtc} /></span>
+                <span className="text-right">{issue.startUtc ? <Timestamp value={issue.startUtc} /> : t('noData')}</span>
               </div>
               <div className="flex items-start justify-between gap-3">
                 <span className="text-muted-foreground">{t('end')}</span>
-                <span className="text-right"><Timestamp value={issue.endUtc} /></span>
+                <span className="text-right">{issue.endUtc ? <Timestamp value={issue.endUtc} /> : t('noData')}</span>
               </div>
               {issue.evidenceWindowStartUtc && issue.evidenceWindowEndUtc && (
                 <div className="flex items-start justify-between gap-3">
@@ -330,8 +330,26 @@ function validationIssueMessage(issue: ValidationIssue, t: (key: string) => stri
 }
 
 function keepSelectedIssue(current: string | null, issues: ValidationIssue[]) {
+  const urlIssue = issueFromUrlParams(issues);
+  if (urlIssue) return urlIssue.id;
   if (current && issues.some((issue) => issue.id === current)) return current;
   return issues[0]?.id ?? null;
+}
+
+function issueFromUrlParams(issues: ValidationIssue[]) {
+  const params = new URLSearchParams(window.location.search);
+  const hitId = params.get('hitId');
+  if (hitId) {
+    const matchedByHit = issues.find((issue) => String(issue.hitId) === hitId);
+    if (matchedByHit) return matchedByHit;
+  }
+  const crewId = params.get('crewId');
+  const ruleId = params.get('ruleId');
+  if (!crewId && !ruleId) return null;
+  return issues.find((issue) => (
+    (!crewId || String(issue.crewId) === crewId)
+    && (!ruleId || issue.ruleId === ruleId)
+  )) ?? null;
 }
 
 function issueListFromSummary(summary: ValidationPublishSummary): ValidationIssueList {

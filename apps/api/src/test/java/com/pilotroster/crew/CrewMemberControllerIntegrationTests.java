@@ -1,6 +1,7 @@
 package com.pilotroster.crew;
 
 import static org.hamcrest.Matchers.contains;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -36,6 +37,17 @@ class CrewMemberControllerIntegrationTests {
     @AfterEach
     void cleanTestRows() {
         jdbcTemplate.update("DELETE FROM crew_external_work WHERE description = 'TEST-CREW-retired'");
+        jdbcTemplate.update("""
+            DELETE tb FROM timeline_block tb
+            JOIN crew_member cm ON cm.id = tb.crew_member_id
+            WHERE cm.crew_code IN ('TESTCREWWB01', 'TESTCREWWB02')
+            """);
+        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code IN ('TESTCREWWB01-FLIGHT')");
+        jdbcTemplate.update("""
+            DELETE vh FROM violation_hit vh
+            JOIN crew_member cm ON cm.id = vh.crew_id
+            WHERE cm.crew_code IN ('TESTCREWWB01', 'TESTCREWWB02')
+            """);
         jdbcTemplate.update("DELETE FROM crew_member WHERE crew_code IN ('TESTCREWWB01', 'TESTCREWWB02')");
     }
 
@@ -117,17 +129,85 @@ class CrewMemberControllerIntegrationTests {
             """,
             inactiveCrewId
         );
+        insertLatestRosterFlightBlock(activeCrewId);
 
         mockMvc.perform(get("/api/crew-members").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours28d", activeCrewId).value(contains(10.25)))
-            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours28d", activeCrewId).value(contains(20.50)))
-            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours7d", activeCrewId).value(contains(7.25)))
-            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours14d", activeCrewId).value(contains(14.50)))
-            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours12m", activeCrewId).value(contains(120.75)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours28d", activeCrewId).value(contains(10.25)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours7d", activeCrewId).value(contains(10.25)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours14d", activeCrewId).value(contains(10.25)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours12m", activeCrewId).value(contains(10.25)))
             .andExpect(jsonPath("$.data[?(@.id == %d)].latestActualFdpHours", activeCrewId).value(contains(8.25)))
             .andExpect(jsonPath("$.data[?(@.id == %d)].latestActualFdpSource", activeCrewId).value(contains("SYSTEM_FEED")))
             .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours28d", inactiveCrewId).value(contains(99.25)));
+    }
+
+    @Test
+    void listKeepsRuleHitsOutOfCrewHourFacts() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+
+        MvcResult crewResult = mockMvc.perform(post("/api/crew-members")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "crewCode": "TESTCREWWB01",
+                      "employeeNo": "TESTCREWWB01",
+                      "nameZh": "测试小时事实",
+                      "nameEn": "Test Crew Hour Fact",
+                      "homeBase": "MFM",
+                      "roleCode": "CAPTAIN",
+                      "rankCode": "CAPT",
+                      "aircraftQualification": "A330",
+                      "acclimatizationStatus": "ACCLIMATIZED",
+                      "bodyClockTimezone": "Asia/Macau",
+                      "normalCommuteMinutes": 20,
+                      "externalEmploymentFlag": false
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        Long crewId = extractLong(crewResult.getResponse().getContentAsString(), "\"id\":");
+
+        int insertedViolationHits = jdbcTemplate.update(
+            """
+            INSERT INTO violation_hit (
+              roster_version_id,
+              rule_catalog_id,
+              severity,
+              status,
+              target_type,
+              target_id,
+              crew_id,
+              message,
+              recommended_action,
+              evidence_json
+            )
+            SELECT rv.id,
+                   rc.id,
+                   'BLOCK',
+                   'OPEN',
+                   'CREW',
+                   ?,
+                   ?,
+                   'Rolling 28-day flight minutes exceed the 100-hour limit.',
+                   'ADJUST_CREW_HOURS',
+                   '{}'
+            FROM roster_version rv
+            JOIN rule_catalog rc ON rc.rule_id = 'RG-HOUR-001' AND rc.active_flag = TRUE
+            ORDER BY rv.id DESC
+            LIMIT 1
+            """,
+            crewId,
+            crewId
+        );
+        assertEquals(1, insertedViolationHits);
+
+        mockMvc.perform(get("/api/crew-members").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours28d", crewId).exists())
+            .andExpect(jsonPath("$.data[?(@.id == %d)].hourRuleHits", crewId).doesNotExist());
     }
 
     @Test
@@ -365,6 +445,37 @@ class CrewMemberControllerIntegrationTests {
         int tokenStart = body.indexOf("\"token\":\"") + 9;
         int tokenEnd = body.indexOf('"', tokenStart);
         return body.substring(tokenStart, tokenEnd);
+    }
+
+    private void insertLatestRosterFlightBlock(Long crewId) {
+        Long rosterVersionId = jdbcTemplate.queryForObject(
+            "SELECT id FROM roster_version ORDER BY id DESC LIMIT 1",
+            Long.class
+        );
+        Long batchId = jdbcTemplate.queryForObject(
+            "SELECT id FROM task_plan_import_batch ORDER BY id LIMIT 1",
+            Long.class
+        );
+        jdbcTemplate.update("""
+            INSERT INTO task_plan_item (
+                batch_id, task_code, task_type, departure_airport, arrival_airport,
+                scheduled_start_utc, scheduled_end_utc, sector_count, status
+            )
+            VALUES (?, 'TESTCREWWB01-FLIGHT', 'FLIGHT', 'MFM', 'TPE',
+                    '2026-05-01 00:00:00', '2026-05-01 10:15:00', 1, 'ASSIGNED')
+            """, batchId);
+        Long taskId = jdbcTemplate.queryForObject(
+            "SELECT id FROM task_plan_item WHERE task_code = 'TESTCREWWB01-FLIGHT'",
+            Long.class
+        );
+        jdbcTemplate.update("""
+            INSERT INTO timeline_block (
+                roster_version_id, crew_member_id, task_plan_item_id, block_type,
+                start_utc, end_utc, display_label, status, assignment_role, display_order
+            )
+            VALUES (?, ?, ?, 'FLIGHT', '2026-05-01 00:00:00', '2026-05-01 10:15:00',
+                    'TESTCREWWB01-FLIGHT MFM-TPE', 'PLANNED', 'FO', 0)
+            """, rosterVersionId, crewId, taskId);
     }
 
     private Long extractLong(String body, String marker) {
