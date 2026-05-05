@@ -2,8 +2,10 @@ package com.pilotroster.rule;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public record RuleDerivedFacts(
     Long rosterVersionId,
@@ -11,13 +13,13 @@ public record RuleDerivedFacts(
     Map<Long, DdoFact> ddoFactsByBlockId,
     Map<Long, CrewDaySequenceFact> crewDaySequenceFactsByCrewId,
     Map<Long, DdoCrewSequenceFact> ddoSequenceFactsByCrewId,
-    Map<Long, FdpRestFact> fdpRestFactsByTaskId
+    List<FdpRestFact> fdpRestFacts
 ) {
     public RuleDerivedFacts(
         Long rosterVersionId,
         Map<Long, CrewHourFact> crewHourFactsByCrewId,
         Map<Long, DdoFact> ddoFactsByBlockId,
-        Map<Long, FdpRestFact> fdpRestFactsByTaskId
+        List<FdpRestFact> fdpRestFacts
     ) {
         this(
             rosterVersionId,
@@ -25,7 +27,7 @@ public record RuleDerivedFacts(
             ddoFactsByBlockId,
             crewDaySequenceFactsFrom(ddoFactsByBlockId),
             ddoSequenceFactsFrom(ddoFactsByBlockId),
-            fdpRestFactsByTaskId
+            fdpRestFacts
         );
     }
 
@@ -34,7 +36,46 @@ public record RuleDerivedFacts(
         ddoFactsByBlockId = Map.copyOf(ddoFactsByBlockId);
         crewDaySequenceFactsByCrewId = Map.copyOf(crewDaySequenceFactsByCrewId);
         ddoSequenceFactsByCrewId = Map.copyOf(ddoSequenceFactsByCrewId);
-        fdpRestFactsByTaskId = Map.copyOf(fdpRestFactsByTaskId);
+        fdpRestFacts = List.copyOf(fdpRestFacts);
+    }
+
+    public Map<Long, List<FdpRestFact>> fdpRestFactsByTaskId() {
+        return fdpRestFacts.stream()
+            .collect(Collectors.collectingAndThen(
+                Collectors.groupingBy(
+                    FdpRestFact::taskId,
+                    LinkedHashMap::new,
+                    Collectors.toList()
+                ),
+                groupedFacts -> {
+                    Map<Long, List<FdpRestFact>> immutableGroupedFacts = new LinkedHashMap<>();
+                    groupedFacts.forEach((taskId, facts) -> immutableGroupedFacts.put(taskId, List.copyOf(facts)));
+                    return Map.copyOf(immutableGroupedFacts);
+                }
+            ));
+    }
+
+    public Map<Long, Map<Long, FdpRestFact>> fdpRestFactsByTaskIdAndCrewId() {
+        return fdpRestFacts.stream()
+            .collect(Collectors.collectingAndThen(
+                Collectors.groupingBy(
+                    FdpRestFact::taskId,
+                    LinkedHashMap::new,
+                    Collectors.toMap(
+                        FdpRestFact::crewId,
+                        fact -> fact,
+                        (left, right) -> left,
+                        LinkedHashMap::new
+                    )
+                ),
+                groupedFacts -> {
+                    Map<Long, Map<Long, FdpRestFact>> immutableGroupedFacts = new LinkedHashMap<>();
+                    groupedFacts.forEach((taskId, factsByCrewId) ->
+                        immutableGroupedFacts.put(taskId, Map.copyOf(factsByCrewId))
+                    );
+                    return Map.copyOf(immutableGroupedFacts);
+                }
+            ));
     }
 
     private static Map<Long, CrewDaySequenceFact> crewDaySequenceFactsFrom(Map<Long, DdoFact> ddoFactsByBlockId) {
@@ -155,12 +196,19 @@ public record RuleDerivedFacts(
     public record FdpRestFact(
         Long taskId,
         Long crewId,
-        Integer startBand,
+        String startBand,
+        long fdpMinutes,
         long allowableFdpMinutes,
         long previousDutyMinutes,
         int restLocalNights,
-        boolean reducedRest,
-        boolean specialAssessmentPassed
+        boolean precededByReducedRest,
+        boolean followingRestReduced,
+        boolean extendedFdp,
+        boolean specialAssessmentPassed,
+        Instant fdpStartUtc,
+        Instant fdpEndUtc,
+        Instant followingRestStartUtc,
+        Instant followingRestEndUtc
     ) {
     }
 }

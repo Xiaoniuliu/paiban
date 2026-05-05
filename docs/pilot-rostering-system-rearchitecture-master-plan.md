@@ -1263,6 +1263,8 @@ The publish-result module may read:
 
 Current implementation note: some issue/publish backend services still live under the historical `workbench` package while the route/UI ownership is being moved. Treat that package placement as Phase 5 replacement debt, not as permission to reattach publish or issue ownership to the workbench UI.
 
+Package-boundary note: `ValidationPublishService` still lives under `workbench` because the existing validation/publish flow, transactional publish gate, issue-hit cleanup, and integration tests were originally wired through that package. Moving it is safe only as a cleanup refactor after behavior is frozen: preserve the existing API contract, transaction boundaries, validation-hit semantics, publish-blocking rules, and regression coverage while relocating ownership into the publish/issue module package. Do not interpret the current package location as unfinished validation or publish behavior.
+
 The publish-result module may change:
 
 - formal publish result records,
@@ -1703,6 +1705,12 @@ Completion gate:
   - draft
   - issues
   - publish
+
+Current Phase 5 status:
+
+- validation and publish behavior is functionally closed for the current phase: active executable validation hits gate publish, cleared/confirmed issue state is respected, and catalog-only rules such as `RG-DDO-004` do not block validation or publish.
+- remaining Phase 5 work is package-ownership cleanup only, especially moving historical `workbench` service placement into clearer issue/publish ownership without changing runtime behavior.
+- package cleanup must be treated as a refactor with regression coverage, not as a reason to reopen the validation/publish business flow.
 
 ### 12.7 Cross-phase execution rules
 

@@ -11,6 +11,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,22 @@ import org.springframework.test.web.servlet.MvcResult;
 @SpringBootTest
 @AutoConfigureMockMvc
 class RuleCatalogIntegrationTests {
+
+    private static final Set<String> EXECUTABLE_EVALUATION_RULE_IDS = Set.of(
+        "RG-BASE-008",
+        "RG-DDO-001",
+        "RG-DDO-002",
+        "RG-DDO-003",
+        "RG-HOUR-001",
+        "RG-HOUR-002",
+        "RG-HOUR-003",
+        "RG-HOUR-006",
+        "RG-HOUR-007",
+        "RG-FDP-006",
+        "RG-REST-004",
+        "RG-FDP-008",
+        "RG-REST-008"
+    );
 
     @Autowired
     private MockMvc mockMvc;
@@ -66,11 +84,65 @@ class RuleCatalogIntegrationTests {
             .andExpect(jsonPath("$.data[*].ruleCategory").value(hasItem("告警提醒")))
             .andExpect(jsonPath("$.data[*].ruleCategory").value(hasItem("参考信息")))
             .andExpect(jsonPath("$.data[?(@.ruleId=='RG-FDP-006')].catalogEntryType").value(hasItem("EVALUATION_RULE")))
+            .andExpect(jsonPath("$.data[?(@.ruleId=='RG-REST-004')].catalogEntryType").value(hasItem("EVALUATION_RULE")))
             .andExpect(jsonPath("$.data[?(@.ruleId=='RG-TIME-001')].catalogEntryType").value(hasItem("CALCULATION_METHOD")))
             .andExpect(jsonPath("$.data[?(@.ruleId=='RG-FDP-006')].activeFlag").value(hasItem(true)))
+            .andExpect(jsonPath("$.data[?(@.ruleId=='RG-REST-004')].activeFlag").value(hasItem(true)))
+            .andExpect(jsonPath("$.data[?(@.ruleId=='RG-FDP-008')].activeFlag").value(hasItem(true)))
+            .andExpect(jsonPath("$.data[?(@.ruleId=='RG-REST-008')].activeFlag").value(hasItem(true)))
+            .andExpect(jsonPath("$.data[?(@.ruleId=='RG-FDP-006')].versionStatus").value(hasItem("ACTIVE")))
+            .andExpect(jsonPath("$.data[?(@.ruleId=='RG-REST-004')].versionStatus").value(hasItem("ACTIVE")))
+            .andExpect(jsonPath("$.data[?(@.ruleId=='RG-FDP-008')].versionStatus").value(hasItem("ACTIVE")))
+            .andExpect(jsonPath("$.data[?(@.ruleId=='RG-REST-008')].versionStatus").value(hasItem("ACTIVE")))
             .andExpect(jsonPath("$.data[?(@.ruleId=='RG-FDP-006')].activationLocked").value(hasItem(true)))
             .andExpect(jsonPath("$.data[?(@.ruleId=='RG-BASE-009')].activationLocked").value(hasItem(false)))
             .andExpect(jsonPath("$.data[*].activationLocked").value(hasItem(true)));
+    }
+
+    @Test
+    void executableEvaluationRulesHaveAlignedActiveStatus() {
+        List<String> activeExecutableRuleIds = jdbcTemplate.queryForList(
+            """
+            SELECT rule_id
+            FROM rule_catalog
+            WHERE catalog_entry_type = 'EVALUATION_RULE'
+              AND severity_default LIKE 'P0%'
+              AND active_flag = TRUE
+              AND version_status = 'ACTIVE'
+            ORDER BY rule_id
+            """,
+            String.class
+        );
+        org.assertj.core.api.Assertions.assertThat(activeExecutableRuleIds)
+            .containsExactlyInAnyOrderElementsOf(EXECUTABLE_EVALUATION_RULE_IDS);
+
+        List<String> misalignedCatalogOnlyRuleIds = jdbcTemplate.queryForList(
+            """
+            SELECT rule_id
+            FROM rule_catalog
+            WHERE catalog_entry_type = 'EVALUATION_RULE'
+              AND severity_default LIKE 'P0%'
+              AND rule_id NOT IN (
+                'RG-BASE-008',
+                'RG-DDO-001',
+                'RG-DDO-002',
+                'RG-DDO-003',
+                'RG-HOUR-001',
+                'RG-HOUR-002',
+                'RG-HOUR-003',
+                'RG-HOUR-006',
+                'RG-HOUR-007',
+                'RG-FDP-006',
+                'RG-REST-004',
+                'RG-FDP-008',
+                'RG-REST-008'
+              )
+              AND (active_flag <> FALSE OR version_status <> 'CATALOG_ONLY')
+            ORDER BY rule_id
+            """,
+            String.class
+        );
+        org.assertj.core.api.Assertions.assertThat(misalignedCatalogOnlyRuleIds).isEmpty();
     }
 
     @Test
@@ -163,7 +235,7 @@ class RuleCatalogIntegrationTests {
     void ruleEvaluationDoesNotCloseExternalEvaluationRuleHits() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
         Long rosterVersionId = latestRosterVersionId();
-        Long externalRuleCatalogId = ruleCatalogId("RG-FDP-006");
+        Long externalRuleCatalogId = ruleCatalogId("RG-DDO-004");
 
         jdbcTemplate.update(
             """

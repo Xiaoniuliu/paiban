@@ -1601,15 +1601,353 @@ class RuleDerivedFactServiceIntegrationTests {
     }
 
     @Test
-    void buildLatestRosterFactsKeepsFdpRestFactsEmptyAtUnsupportedPlaceholderBoundary() {
-        Long rosterVersionId = jdbcTemplate.queryForObject(
-            "SELECT id FROM roster_version ORDER BY id LIMIT 1",
-            Long.class
+    void buildLatestRosterFactsBuildsFdpRestFactsForFlightAndFollowingRest() {
+        Long crewId = insertActiveCrew("TSTFDP01");
+        Long rosterVersionId = insertRosterVersion("RV-TST-FDP-REST-BASIC");
+        Long taskId = insertFlightTask(
+            "TST-FDP-REST-001",
+            "2036-09-01 00:00:00",
+            "2036-09-01 12:30:00"
+        );
+        Long previousDutyTaskId = insertFlightTask(
+            "TST-FDP-PREV-DUTY-001",
+            "2036-08-31 20:00:00",
+            "2036-08-31 22:00:00"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            previousDutyTaskId,
+            "2036-08-31 20:00:00",
+            "2036-08-31 22:00:00"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            crewId,
+            "2036-08-31 22:00:00",
+            "2036-09-01 00:00:00",
+            "TEST FDP PRECEDING SHORT REST"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            taskId,
+            "2036-09-01 00:00:00",
+            "2036-09-01 12:30:00"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            crewId,
+            "2036-09-01 14:00:00",
+            "2036-09-03 00:30:00",
+            "TEST FDP FOLLOWING REST TWO NIGHTS"
         );
 
         RuleDerivedFacts facts = ruleDerivedFactService.buildLatestRosterFacts(rosterVersionId);
 
-        assertThat(facts.fdpRestFactsByTaskId()).isEmpty();
+        assertThat(facts.fdpRestFactsByTaskId()).containsOnlyKeys(taskId, previousDutyTaskId);
+        assertThat(facts.fdpRestFactsByTaskId().get(taskId))
+            .singleElement()
+            .satisfies(fact -> {
+                assertThat(fact.taskId()).isEqualTo(taskId);
+                assertThat(fact.crewId()).isEqualTo(crewId);
+                assertThat(fact.startBand()).isEqualTo("08:00-11:59");
+                assertThat(fact.fdpMinutes()).isEqualTo(750);
+                assertThat(fact.allowableFdpMinutes()).isEqualTo(14 * 60L);
+                assertThat(fact.previousDutyMinutes()).isEqualTo(120);
+                assertThat(fact.restLocalNights()).isEqualTo(2);
+                assertThat(fact.precededByReducedRest()).isTrue();
+                assertThat(fact.followingRestReduced()).isFalse();
+                assertThat(fact.extendedFdp()).isFalse();
+                assertThat(fact.specialAssessmentPassed()).isFalse();
+                assertThat(fact.fdpStartUtc()).isEqualTo(Instant.parse("2036-09-01T00:00:00Z"));
+                assertThat(fact.fdpEndUtc()).isEqualTo(Instant.parse("2036-09-01T12:30:00Z"));
+                assertThat(fact.followingRestStartUtc()).isEqualTo(Instant.parse("2036-09-01T14:00:00Z"));
+                assertThat(fact.followingRestEndUtc()).isEqualTo(Instant.parse("2036-09-03T00:30:00Z"));
+            });
+    }
+
+    @Test
+    void buildLatestRosterFactsBuildsFdpRestFactsForEachCrewAssignmentOnSameFlight() {
+        Long captainCrewId = insertActiveCrew("TSTFDP03A");
+        Long firstOfficerCrewId = insertActiveCrew("TSTFDP03B");
+        Long rosterVersionId = insertRosterVersion("RV-TST-FDP-REST-MULTI-CREW");
+        Long taskId = insertFlightTask(
+            "TST-FDP-MULTI-CREW-001",
+            "2036-11-01 00:00:00",
+            "2036-11-01 08:00:00"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            captainCrewId,
+            taskId,
+            "2036-11-01 00:00:00",
+            "2036-11-01 08:00:00"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            firstOfficerCrewId,
+            taskId,
+            "2036-11-01 00:00:00",
+            "2036-11-01 08:00:00"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            captainCrewId,
+            "2036-11-01 08:00:00",
+            "2036-11-03 00:30:00",
+            "TEST FDP MULTI CREW CAPTAIN REST"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            firstOfficerCrewId,
+            "2036-11-01 09:00:00",
+            "2036-11-02 00:30:00",
+            "TEST FDP MULTI CREW FO REST"
+        );
+
+        RuleDerivedFacts facts = ruleDerivedFactService.buildLatestRosterFacts(rosterVersionId);
+
+        assertThat(facts.fdpRestFacts()).hasSize(2);
+        assertThat(facts.fdpRestFacts())
+            .extracting(RuleDerivedFacts.FdpRestFact::crewId)
+            .containsExactlyInAnyOrder(captainCrewId, firstOfficerCrewId);
+        assertThat(facts.fdpRestFactsByTaskId()).containsOnlyKeys(taskId);
+        assertThat(facts.fdpRestFactsByTaskId().get(taskId))
+            .extracting(RuleDerivedFacts.FdpRestFact::crewId)
+            .containsExactlyInAnyOrder(captainCrewId, firstOfficerCrewId);
+        assertThat(facts.fdpRestFactsByTaskIdAndCrewId()).containsOnlyKeys(taskId);
+        assertThat(facts.fdpRestFactsByTaskIdAndCrewId().get(taskId)).containsOnlyKeys(captainCrewId, firstOfficerCrewId);
+        assertThat(facts.fdpRestFactsByTaskIdAndCrewId().get(taskId).get(captainCrewId))
+            .satisfies(fact -> {
+                assertThat(fact.restLocalNights()).isEqualTo(2);
+                assertThat(fact.followingRestReduced()).isFalse();
+            });
+        assertThat(facts.fdpRestFactsByTaskIdAndCrewId().get(taskId).get(firstOfficerCrewId))
+            .satisfies(fact -> {
+                assertThat(fact.restLocalNights()).isEqualTo(1);
+                assertThat(fact.followingRestReduced()).isTrue();
+            });
+    }
+
+    @Test
+    void buildLatestRosterFactsFlagsReducedRestChainAroundExtendedFdp() {
+        Long crewId = insertActiveCrew("TSTFDP04");
+        Long rosterVersionId = insertRosterVersion("RV-TST-FDP-REST-CHAIN");
+        Long previousTaskId = insertFlightTask(
+            "TST-FDP-CHAIN-PREVIOUS",
+            "2036-12-01 00:00:00",
+            "2036-12-01 08:00:00"
+        );
+        Long nextTaskId = insertFlightTask(
+            "TST-FDP-CHAIN-NEXT",
+            "2036-12-01 20:00:00",
+            "2036-12-02 10:30:00"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            previousTaskId,
+            "2036-12-01 00:00:00",
+            "2036-12-01 08:00:00"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            crewId,
+            "2036-12-01 08:00:00",
+            "2036-12-01 20:00:00",
+            "TEST FDP CHAIN PRECEDING REDUCED REST"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            nextTaskId,
+            "2036-12-01 20:00:00",
+            "2036-12-02 10:30:00"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            crewId,
+            "2036-12-02 10:30:00",
+            "2036-12-03 00:30:00",
+            "TEST FDP CHAIN FOLLOWING REDUCED REST"
+        );
+
+        RuleDerivedFacts facts = ruleDerivedFactService.buildLatestRosterFacts(rosterVersionId);
+
+        assertThat(facts.fdpRestFactsByTaskId().get(nextTaskId))
+            .singleElement()
+            .satisfies(fact -> {
+                assertThat(fact.precededByReducedRest()).isTrue();
+                assertThat(fact.extendedFdp()).isTrue();
+                assertThat(fact.followingRestReduced()).isTrue();
+                assertThat(fact.restLocalNights()).isEqualTo(1);
+                assertThat(fact.fdpMinutes()).isEqualTo(870);
+                assertThat(fact.fdpStartUtc()).isEqualTo(Instant.parse("2036-12-01T20:00:00Z"));
+                assertThat(fact.fdpEndUtc()).isEqualTo(Instant.parse("2036-12-02T10:30:00Z"));
+                assertThat(fact.followingRestStartUtc()).isEqualTo(Instant.parse("2036-12-02T10:30:00Z"));
+                assertThat(fact.followingRestEndUtc()).isEqualTo(Instant.parse("2036-12-03T00:30:00Z"));
+            });
+    }
+
+    @Test
+    void buildLatestRosterFactsDoesNotCarryStalePrecedingRestAcrossInterveningDuty() {
+        Long crewId = insertActiveCrew("TSTFDP05");
+        Long rosterVersionId = insertRosterVersion("RV-TST-FDP-REST-STALE-PREVIOUS");
+        Long taskId = insertFlightTask(
+            "TST-FDP-STALE-PREVIOUS",
+            "2037-01-01 10:00:00",
+            "2037-01-01 18:00:00"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            crewId,
+            "2037-01-01 00:00:00",
+            "2037-01-01 04:00:00",
+            "TEST FDP STALE PREVIOUS REDUCED REST"
+        );
+        insertDutyBlock(
+            rosterVersionId,
+            crewId,
+            "2037-01-01 05:00:00",
+            "2037-01-01 06:00:00",
+            "TEST FDP STALE PREVIOUS INTERVENING DUTY"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            taskId,
+            "2037-01-01 10:00:00",
+            "2037-01-01 18:00:00"
+        );
+
+        RuleDerivedFacts facts = ruleDerivedFactService.buildLatestRosterFacts(rosterVersionId);
+
+        assertThat(facts.fdpRestFactsByTaskId().get(taskId))
+            .singleElement()
+            .satisfies(fact -> {
+                assertThat(fact.precededByReducedRest()).isFalse();
+                assertThat(fact.specialAssessmentPassed()).isFalse();
+            });
+    }
+
+    @Test
+    void buildLatestRosterFactsDoesNotUseFollowingRestAfterInterveningDutyForCurrentFdp() {
+        Long crewId = insertActiveCrew("TSTFDP06");
+        Long rosterVersionId = insertRosterVersion("RV-TST-FDP-REST-STALE-FOLLOWING");
+        Long currentTaskId = insertFlightTask(
+            "TST-FDP-STALE-FOLLOWING-CURRENT",
+            "2037-02-01 00:00:00",
+            "2037-02-01 08:00:00"
+        );
+        Long laterTaskId = insertFlightTask(
+            "TST-FDP-STALE-FOLLOWING-LATER",
+            "2037-02-01 10:00:00",
+            "2037-02-01 12:00:00"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            currentTaskId,
+            "2037-02-01 00:00:00",
+            "2037-02-01 08:00:00"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            laterTaskId,
+            "2037-02-01 10:00:00",
+            "2037-02-01 12:00:00"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            crewId,
+            "2037-02-01 12:00:00",
+            "2037-02-02 00:30:00",
+            "TEST FDP STALE FOLLOWING REST"
+        );
+
+        RuleDerivedFacts facts = ruleDerivedFactService.buildLatestRosterFacts(rosterVersionId);
+
+        assertThat(facts.fdpRestFactsByTaskId().get(currentTaskId))
+            .singleElement()
+            .satisfies(fact -> {
+                assertThat(fact.followingRestStartUtc()).isNull();
+                assertThat(fact.followingRestEndUtc()).isNull();
+                assertThat(fact.restLocalNights()).isZero();
+                assertThat(fact.followingRestReduced()).isFalse();
+            });
+    }
+
+    @Test
+    void buildLatestRosterFactsIgnoresCancelledFdpRestInputs() {
+        Long crewId = insertActiveCrew("TSTFDP02");
+        Long rosterVersionId = insertRosterVersion("RV-TST-FDP-REST-CANCELLED");
+        Long activeTaskId = insertFlightTask(
+            "TST-FDP-ACTIVE-001",
+            "2036-10-01 00:00:00",
+            "2036-10-01 06:00:00"
+        );
+        Long cancelledBlockTaskId = insertFlightTask(
+            "TST-FDP-CANCELLED-BLOCK-001",
+            "2036-10-01 08:00:00",
+            "2036-10-01 10:00:00"
+        );
+        Long cancelledLinkedTaskId = insertFlightTask(
+            "TST-FDP-CANCELLED-LINK-001",
+            "2036-10-01 11:00:00",
+            "2036-10-01 13:00:00"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            activeTaskId,
+            "2036-10-01 00:00:00",
+            "2036-10-01 06:00:00"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            cancelledBlockTaskId,
+            "2036-10-01 08:00:00",
+            "2036-10-01 10:00:00"
+        );
+        insertFlightBlock(
+            rosterVersionId,
+            crewId,
+            cancelledLinkedTaskId,
+            "2036-10-01 11:00:00",
+            "2036-10-01 13:00:00"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            crewId,
+            "2036-10-01 06:00:00",
+            "2036-10-01 08:00:00",
+            "TEST FDP CANCELLED REST"
+        );
+        insertRestBlock(
+            rosterVersionId,
+            crewId,
+            "2036-10-01 14:00:00",
+            "2036-10-02 00:30:00",
+            "TEST FDP ACTIVE FOLLOWING REST"
+        );
+        jdbcTemplate.update("UPDATE timeline_block SET status = 'CANCELLED' WHERE display_label = 'TEST FDP CANCELLED REST'");
+        jdbcTemplate.update("UPDATE timeline_block SET status = 'CANCELLED' WHERE task_plan_item_id = ?", cancelledBlockTaskId);
+        jdbcTemplate.update("UPDATE task_plan_item SET status = 'CANCELLED' WHERE id = ?", cancelledLinkedTaskId);
+
+        RuleDerivedFacts facts = ruleDerivedFactService.buildLatestRosterFacts(rosterVersionId);
+
+        assertThat(facts.fdpRestFactsByTaskId()).containsOnlyKeys(activeTaskId);
+        assertThat(facts.fdpRestFactsByTaskId().get(activeTaskId))
+            .singleElement()
+            .satisfies(fact -> {
+                assertThat(fact.followingRestStartUtc()).isEqualTo(Instant.parse("2036-10-01T14:00:00Z"));
+                assertThat(fact.followingRestEndUtc()).isEqualTo(Instant.parse("2036-10-02T00:30:00Z"));
+                assertThat(fact.restLocalNights()).isEqualTo(1);
+                assertThat(fact.followingRestReduced()).isTrue();
+            });
     }
 
     private RuleDerivedFactService fixedClockService(String instant) {
@@ -1698,6 +2036,22 @@ class RuleDerivedFactServiceIntegrationTests {
             )
             VALUES (?, ?, ?, 'FLIGHT', ?, ?, 'TEST HOUR FLIGHT', 'PUBLISHED', 'PIC', 0)
             """, rosterVersionId, crewId, taskId, startUtc, endUtc);
+    }
+
+    private void insertDutyBlock(
+        Long rosterVersionId,
+        Long crewId,
+        String startUtc,
+        String endUtc,
+        String displayLabel
+    ) {
+        jdbcTemplate.update("""
+            INSERT INTO timeline_block (
+                roster_version_id, crew_member_id, task_plan_item_id, block_type,
+                start_utc, end_utc, display_label, status, assignment_role, display_order
+            )
+            VALUES (?, ?, NULL, 'DUTY', ?, ?, ?, 'PLANNED', 'EXTRA', 0)
+            """, rosterVersionId, crewId, startUtc, endUtc, displayLabel);
     }
 
     private Long insertDdoBlock(

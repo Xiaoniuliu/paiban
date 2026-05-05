@@ -46,7 +46,10 @@ class ValidationPublishIntegrationTests {
             DELETE vh
             FROM violation_hit vh
             JOIN crew_member cm ON cm.id = vh.crew_id
-            WHERE cm.crew_code IN ('TSTVALDDO01', 'TSTVALDDO02', 'TSTVALDDO03', 'TSTVALDDO04', 'TSTVALDDO05')
+            WHERE cm.crew_code IN (
+                'TSTVALDDO01', 'TSTVALDDO02', 'TSTVALDDO03', 'TSTVALDDO04', 'TSTVALDDO05',
+                'TSTVALFDP01', 'TSTVALFDP02', 'TSTVALFDP03', 'TSTVALFDP04', 'TSTVALFDP05'
+            )
             """
         );
         jdbcTemplate.update(
@@ -62,7 +65,11 @@ class ValidationPublishIntegrationTests {
                    'TEST_NIGHT_FDP', 'TEST_NIGHT_FDP_EXTRA', 'TEST_NIGHT_FDP_RELIEF',
                    'TEST_NIGHT_FDP_MISSING_FO', 'TEST_DDO_DUTY_1', 'TEST_DDO_DUTY_2',
                    'TEST_DDO_DUTY_3', 'TEST_DDO_DUTY_4', 'TEST_DDO_DUTY_5', 'TEST_DDO_DUTY_6',
-                   'TEST_DDO_DUTY_7', 'TEST_DDO_ROLLING_CANCELLED_LINK', 'NX8810', 'NX8811'
+                   'TEST_DDO_DUTY_7', 'TEST_DDO_ROLLING_CANCELLED_LINK',
+                   'TEST_FDP_REST_OVER_FDP', 'TEST_FDP_REST_PREVIOUS_DUTY',
+                   'TEST_FDP_REST_IN_LIMIT', 'TEST_FDP_REDUCED_REST_PREVIOUS',
+                   'TEST_FDP_REDUCED_REST_NEXT', 'TEST_FDP_REST_CHAIN_PREVIOUS',
+                   'TEST_FDP_REST_CHAIN_EXTENDED', 'NX8810', 'NX8811'
                )
                OR tb.display_label IN (
                    'TEST REST CONFLICT', 'TEST FLIGHT OVERLAP', 'TEST SHORT DDO',
@@ -72,7 +79,14 @@ class ValidationPublishIntegrationTests {
                    'TEST NIGHT FDP RELIEF FO', 'TEST NIGHT FDP RELIEF', 'TEST NIGHT FDP MISSING FO PIC',
                    'TEST DDO DUTY 1', 'TEST DDO DUTY 2', 'TEST DDO DUTY 3', 'TEST DDO DUTY 4',
                    'TEST DDO DUTY 5', 'TEST DDO DUTY 6', 'TEST DDO DUTY 7',
-                   'TEST DDO AFTER SIX DUTY DAYS', 'TEST DDO ROLLING CANCELLED LINK TWO UNITS'
+                   'TEST DDO AFTER SIX DUTY DAYS', 'TEST DDO ROLLING CANCELLED LINK TWO UNITS',
+                   'TEST FDP REST OVER FDP', 'TEST FDP REST PREVIOUS DUTY',
+                   'TEST FDP REST SHORT REST DUTY', 'TEST FDP REST SHORT REST',
+                   'TEST FDP REST IN LIMIT', 'TEST FDP REST IN LIMIT REST',
+                   'TEST FDP REDUCED REST PREVIOUS', 'TEST FDP REDUCED REST SHORT',
+                   'TEST FDP REDUCED REST NEXT', 'TEST FDP REDUCED REST RECOVERY',
+                   'TEST FDP REST CHAIN PREVIOUS', 'TEST FDP REST CHAIN PRECEDING REDUCED',
+                   'TEST FDP REST CHAIN EXTENDED', 'TEST FDP REST CHAIN FOLLOWING REDUCED'
                )
                OR rv.version_no LIKE 'RV-TEST-VALIDATION-%'
             """
@@ -88,7 +102,14 @@ class ValidationPublishIntegrationTests {
                 'TEST NIGHT FDP RELIEF FO', 'TEST NIGHT FDP RELIEF', 'TEST NIGHT FDP MISSING FO PIC',
                 'TEST DDO DUTY 1', 'TEST DDO DUTY 2', 'TEST DDO DUTY 3', 'TEST DDO DUTY 4',
                 'TEST DDO DUTY 5', 'TEST DDO DUTY 6', 'TEST DDO DUTY 7',
-                'TEST DDO AFTER SIX DUTY DAYS', 'TEST DDO ROLLING CANCELLED LINK TWO UNITS'
+                'TEST DDO AFTER SIX DUTY DAYS', 'TEST DDO ROLLING CANCELLED LINK TWO UNITS',
+                'TEST FDP REST OVER FDP', 'TEST FDP REST PREVIOUS DUTY',
+                'TEST FDP REST SHORT REST DUTY', 'TEST FDP REST SHORT REST',
+                'TEST FDP REST IN LIMIT', 'TEST FDP REST IN LIMIT REST',
+                'TEST FDP REDUCED REST PREVIOUS', 'TEST FDP REDUCED REST SHORT',
+                'TEST FDP REDUCED REST NEXT', 'TEST FDP REDUCED REST RECOVERY',
+                'TEST FDP REST CHAIN PREVIOUS', 'TEST FDP REST CHAIN PRECEDING REDUCED',
+                'TEST FDP REST CHAIN EXTENDED', 'TEST FDP REST CHAIN FOLLOWING REDUCED'
             )
             """
         );
@@ -102,7 +123,10 @@ class ValidationPublishIntegrationTests {
                 'TEST_STATUS_BLOCKED', 'TEST_STATUS_WARNING', 'TEST_PUBLISH_CANCELLED',
                 'TEST_NIGHT_FDP', 'TEST_NIGHT_FDP_EXTRA', 'TEST_NIGHT_FDP_RELIEF', 'TEST_NIGHT_FDP_MISSING_FO',
                 'TEST_DDO_DUTY_1', 'TEST_DDO_DUTY_2', 'TEST_DDO_DUTY_3', 'TEST_DDO_DUTY_4',
-                'TEST_DDO_DUTY_5', 'TEST_DDO_DUTY_6', 'TEST_DDO_DUTY_7', 'TEST_DDO_ROLLING_CANCELLED_LINK'
+                'TEST_DDO_DUTY_5', 'TEST_DDO_DUTY_6', 'TEST_DDO_DUTY_7', 'TEST_DDO_ROLLING_CANCELLED_LINK',
+                'TEST_FDP_REST_OVER_FDP', 'TEST_FDP_REST_PREVIOUS_DUTY', 'TEST_FDP_REST_IN_LIMIT',
+                'TEST_FDP_REDUCED_REST_PREVIOUS', 'TEST_FDP_REDUCED_REST_NEXT',
+                'TEST_FDP_REST_CHAIN_PREVIOUS', 'TEST_FDP_REST_CHAIN_EXTENDED'
             )
             """
         );
@@ -114,7 +138,10 @@ class ValidationPublishIntegrationTests {
                 'TEST_STATUS_BLOCKED', 'TEST_STATUS_WARNING', 'TEST_PUBLISH_CANCELLED',
                 'TEST_NIGHT_FDP', 'TEST_NIGHT_FDP_EXTRA', 'TEST_NIGHT_FDP_RELIEF', 'TEST_NIGHT_FDP_MISSING_FO',
                 'TEST_DDO_DUTY_1', 'TEST_DDO_DUTY_2', 'TEST_DDO_DUTY_3', 'TEST_DDO_DUTY_4',
-                'TEST_DDO_DUTY_5', 'TEST_DDO_DUTY_6', 'TEST_DDO_DUTY_7', 'TEST_DDO_ROLLING_CANCELLED_LINK'
+                'TEST_DDO_DUTY_5', 'TEST_DDO_DUTY_6', 'TEST_DDO_DUTY_7', 'TEST_DDO_ROLLING_CANCELLED_LINK',
+                'TEST_FDP_REST_OVER_FDP', 'TEST_FDP_REST_PREVIOUS_DUTY', 'TEST_FDP_REST_IN_LIMIT',
+                'TEST_FDP_REDUCED_REST_PREVIOUS', 'TEST_FDP_REDUCED_REST_NEXT',
+                'TEST_FDP_REST_CHAIN_PREVIOUS', 'TEST_FDP_REST_CHAIN_EXTENDED'
             )
             """
         );
@@ -145,7 +172,13 @@ class ValidationPublishIntegrationTests {
         );
         jdbcTemplate.update("UPDATE task_plan_item SET status = 'UNASSIGNED' WHERE task_code IN ('NX8810', 'NX8811')");
         jdbcTemplate.update(
-            "DELETE FROM crew_member WHERE crew_code IN ('TSTVALDDO01', 'TSTVALDDO02', 'TSTVALDDO03', 'TSTVALDDO04', 'TSTVALDDO05')"
+            """
+            DELETE FROM crew_member
+            WHERE crew_code IN (
+                'TSTVALDDO01', 'TSTVALDDO02', 'TSTVALDDO03', 'TSTVALDDO04', 'TSTVALDDO05',
+                'TSTVALFDP01', 'TSTVALFDP02', 'TSTVALFDP03', 'TSTVALFDP04', 'TSTVALFDP05'
+            )
+            """
         );
     }
 
@@ -505,6 +538,236 @@ class ValidationPublishIntegrationTests {
     }
 
     @Test
+    void validationBlocksSingleFdpOverFourteenHoursWithCrewTaskEvidence() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long rosterVersionId = insertValidationRoster("RV-TEST-VALIDATION-FDP-006");
+        Long crewId = insertActiveCrewForValidation("TSTVALFDP01");
+        Long taskId = insertFlightTask(
+            "TEST_FDP_REST_OVER_FDP",
+            "2036-09-01 00:00:00",
+            "2036-09-01 14:30:00"
+        );
+        insertFlightBlockForCrew(rosterVersionId, crewId, taskId, "TEST FDP REST OVER FDP", 1);
+
+        MvcResult result = mockMvc.perform(post("/api/rostering-workbench/validation-publish/validate")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(hasItem("RG-FDP-006")))
+            .andExpect(jsonPath("$.data.issues[?(@.ruleId == 'RG-FDP-006')].hitId").isNotEmpty())
+            .andExpect(jsonPath("$.data.issues[?(@.ruleId == 'RG-FDP-006')].targetType").value(hasItem("TASK")))
+            .andReturn();
+
+        JsonNode issues = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data/issues");
+        JsonNode evidence = evidenceForRule(issues, "RG-FDP-006");
+        assertThat(issueRuleCount(issues, "RG-FDP-006")).isEqualTo(1);
+        assertThat(evidence.path("phase").asText()).isEqualTo("PHASE_3");
+        assertThat(evidence.path("predicate").asText()).isEqualTo("fdp_minutes <= 840");
+        assertThat(evidence.path("actualMinutes").asLong()).isEqualTo(870);
+        assertThat(evidence.path("limitMinutes").asLong()).isEqualTo(840);
+        assertThat(evidence.path("crewId").asLong()).isEqualTo(crewId);
+        assertThat(evidence.path("taskId").asLong()).isEqualTo(taskId);
+        assertThat(evidence.path("fdpStartUtc").asText()).isEqualTo("2036-09-01T00:00:00Z");
+        assertThat(evidence.path("fdpEndUtc").asText()).isEqualTo("2036-09-01T14:30:00Z");
+    }
+
+    @Test
+    void validationBlocksDutyOverEighteenHoursFollowedByRestWithoutLocalNight() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long rosterVersionId = insertValidationRoster("RV-TEST-VALIDATION-REST-004");
+        Long crewId = insertActiveCrewForValidation("TSTVALFDP02");
+        Long taskId = insertFlightTask(
+            "TEST_FDP_REST_PREVIOUS_DUTY",
+            "2036-09-02 00:00:00",
+            "2036-09-02 18:30:00"
+        );
+        insertFlightBlockForCrew(rosterVersionId, crewId, taskId, "TEST FDP REST SHORT REST DUTY", 1);
+        insertRestBlockForCrew(
+            rosterVersionId,
+            crewId,
+            "2036-09-02 18:30:00",
+            "2036-09-03 02:00:00",
+            "TEST FDP REST SHORT REST",
+            2
+        );
+
+        MvcResult result = mockMvc.perform(post("/api/rostering-workbench/validation-publish/validate")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(hasItem("RG-REST-004")))
+            .andExpect(jsonPath("$.data.issues[?(@.ruleId == 'RG-REST-004')].hitId").isNotEmpty())
+            .andExpect(jsonPath("$.data.issues[?(@.ruleId == 'RG-REST-004')].targetType").value(hasItem("TASK")))
+            .andReturn();
+
+        JsonNode issues = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data/issues");
+        JsonNode evidence = evidenceForRule(issues, "RG-REST-004");
+        assertThat(issueRuleCount(issues, "RG-REST-004")).isEqualTo(1);
+        assertThat(evidence.path("phase").asText()).isEqualTo("PHASE_3");
+        assertThat(evidence.path("predicate").asText()).isEqualTo("fdp_minutes <= 1080 || rest_local_nights >= 1");
+        assertThat(evidence.path("actualMinutes").asLong()).isEqualTo(1110);
+        assertThat(evidence.path("limitMinutes").asLong()).isEqualTo(1080);
+        assertThat(evidence.path("restLocalNights").asInt()).isZero();
+        assertThat(evidence.path("crewId").asLong()).isEqualTo(crewId);
+        assertThat(evidence.path("taskId").asLong()).isEqualTo(taskId);
+        assertThat(evidence.path("followingRestStartUtc").asText()).isEqualTo("2036-09-02T18:30:00Z");
+        assertThat(evidence.path("followingRestEndUtc").asText()).isEqualTo("2036-09-03T02:00:00Z");
+    }
+
+    @Test
+    void validationAllowsInLimitFdpAndRestFactsWithoutFdpRestRuleHits() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        Long rosterVersionId = insertValidationRoster("RV-TEST-VALIDATION-FDP-REST-PASS");
+        Long crewId = insertActiveCrewForValidation("TSTVALFDP03");
+        Long taskId = insertFlightTask(
+            "TEST_FDP_REST_IN_LIMIT",
+            "2036-09-04 00:00:00",
+            "2036-09-04 10:00:00"
+        );
+        insertFlightBlockForCrew(rosterVersionId, crewId, taskId, "TEST FDP REST IN LIMIT", 1);
+        insertRestBlockForCrew(
+            rosterVersionId,
+            crewId,
+            "2036-09-04 14:00:00",
+            "2036-09-05 00:00:00",
+            "TEST FDP REST IN LIMIT REST",
+            2
+        );
+
+        mockMvc.perform(post("/api/rostering-workbench/validation-publish/validate")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(not(hasItem("RG-FDP-006"))))
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(not(hasItem("RG-REST-004"))));
+    }
+
+    @Test
+    void validationBlocksFdpAfterReducedRestWithoutSpecialAssessment() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        activateReducedRestEvaluationRules();
+        Long rosterVersionId = insertValidationRoster("RV-TEST-VALIDATION-FDP-008");
+        Long crewId = insertActiveCrewForValidation("TSTVALFDP04");
+        Long previousTaskId = insertFlightTask(
+            "TEST_FDP_REDUCED_REST_PREVIOUS",
+            "2036-09-05 00:00:00",
+            "2036-09-05 08:00:00"
+        );
+        Long nextTaskId = insertFlightTask(
+            "TEST_FDP_REDUCED_REST_NEXT",
+            "2036-09-05 20:00:00",
+            "2036-09-06 06:00:00"
+        );
+        insertFlightBlockForCrew(rosterVersionId, crewId, previousTaskId, "TEST FDP REDUCED REST PREVIOUS", 1);
+        insertRestBlockForCrew(
+            rosterVersionId,
+            crewId,
+            "2036-09-05 08:00:00",
+            "2036-09-05 20:00:00",
+            "TEST FDP REDUCED REST SHORT",
+            2
+        );
+        insertFlightBlockForCrew(rosterVersionId, crewId, nextTaskId, "TEST FDP REDUCED REST NEXT", 3);
+        insertRestBlockForCrew(
+            rosterVersionId,
+            crewId,
+            "2036-09-06 06:00:00",
+            "2036-09-08 00:30:00",
+            "TEST FDP REDUCED REST RECOVERY",
+            4
+        );
+
+        MvcResult result = mockMvc.perform(post("/api/rostering-workbench/validation-publish/validate")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(hasItem("RG-FDP-008")))
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(not(hasItem("RG-REST-008"))))
+            .andReturn();
+
+        JsonNode issues = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data/issues");
+        JsonNode evidence = evidenceForRule(issues, "RG-FDP-008");
+        assertThat(issueRuleCount(issues, "RG-FDP-008")).isEqualTo(1);
+        assertThat(evidence.path("predicate").asText())
+            .isEqualTo("preceded_by_reduced_rest == false");
+        assertThat(evidence.path("actual").path("precededByReducedRest").asBoolean()).isTrue();
+        assertThat(evidence.path("actual").path("specialAssessmentSourceAvailable").asBoolean()).isFalse();
+        assertThat(evidence.path("actual").path("specialAssessmentPassed").asBoolean()).isFalse();
+        assertThat(evidence.path("crewId").asLong()).isEqualTo(crewId);
+        assertThat(evidence.path("taskId").asLong()).isEqualTo(nextTaskId);
+        assertThat(evidence.path("previousRest").path("reduced").asBoolean()).isTrue();
+        assertThat(evidence.path("previousRest").path("minutes").asLong()).isEqualTo(720);
+        assertThat(evidence.path("previousRest").path("localNights").asInt()).isZero();
+        assertThat(evidence.path("previousRest").path("startUtc").asText()).isEqualTo("2036-09-05T08:00:00Z");
+        assertThat(evidence.path("previousRest").path("endUtc").asText()).isEqualTo("2036-09-05T20:00:00Z");
+        assertThat(evidence.path("fdp").path("startUtc").asText()).isEqualTo("2036-09-05T20:00:00Z");
+        assertThat(evidence.path("fdp").path("endUtc").asText()).isEqualTo("2036-09-06T06:00:00Z");
+    }
+
+    @Test
+    void validationBlocksReducedRestChainAfterExtendedFdpWithFollowingReducedRest() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        activateReducedRestEvaluationRules();
+        Long rosterVersionId = insertValidationRoster("RV-TEST-VALIDATION-REST-008");
+        Long crewId = insertActiveCrewForValidation("TSTVALFDP05");
+        Long previousTaskId = insertFlightTask(
+            "TEST_FDP_REST_CHAIN_PREVIOUS",
+            "2036-09-10 00:00:00",
+            "2036-09-10 08:00:00"
+        );
+        Long extendedTaskId = insertFlightTask(
+            "TEST_FDP_REST_CHAIN_EXTENDED",
+            "2036-09-10 20:00:00",
+            "2036-09-11 10:30:00"
+        );
+        insertFlightBlockForCrew(rosterVersionId, crewId, previousTaskId, "TEST FDP REST CHAIN PREVIOUS", 1);
+        insertRestBlockForCrew(
+            rosterVersionId,
+            crewId,
+            "2036-09-10 08:00:00",
+            "2036-09-10 20:00:00",
+            "TEST FDP REST CHAIN PRECEDING REDUCED",
+            2
+        );
+        insertFlightBlockForCrew(rosterVersionId, crewId, extendedTaskId, "TEST FDP REST CHAIN EXTENDED", 3);
+        insertRestBlockForCrew(
+            rosterVersionId,
+            crewId,
+            "2036-09-11 10:30:00",
+            "2036-09-12 00:30:00",
+            "TEST FDP REST CHAIN FOLLOWING REDUCED",
+            4
+        );
+
+        MvcResult result = mockMvc.perform(post("/api/rostering-workbench/validation-publish/validate")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.issues[*].ruleId").value(hasItem("RG-REST-008")))
+            .andReturn();
+
+        JsonNode issues = objectMapper.readTree(result.getResponse().getContentAsString()).at("/data/issues");
+        JsonNode evidence = evidenceForRule(issues, "RG-REST-008");
+        assertThat(issueRuleCount(issues, "RG-REST-008")).isEqualTo(1);
+        assertThat(evidence.path("predicate").asText())
+            .isEqualTo("!(preceded_by_reduced_rest && extended_fdp && following_rest_reduced)");
+        assertThat(evidence.path("actual").path("precededByReducedRest").asBoolean()).isTrue();
+        assertThat(evidence.path("actual").path("extendedFdp").asBoolean()).isTrue();
+        assertThat(evidence.path("actual").path("followingRestReduced").asBoolean()).isTrue();
+        assertThat(evidence.path("chainReason").asText()).isEqualTo("REDUCED_REST_AFTER_EXTENDED_FDP");
+        assertThat(evidence.path("crewId").asLong()).isEqualTo(crewId);
+        assertThat(evidence.path("taskId").asLong()).isEqualTo(extendedTaskId);
+        assertThat(evidence.path("nextRest").path("reduced").asBoolean()).isTrue();
+        assertThat(evidence.path("nextRest").path("startUtc").asText()).isEqualTo("2036-09-11T10:30:00Z");
+        assertThat(evidence.path("nextRest").path("endUtc").asText()).isEqualTo("2036-09-12T00:30:00Z");
+    }
+
+    @Test
     void validationBlocksTwoPilotNightFdpOverEightHoursWhenRuleIsEnabled() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
         jdbcTemplate.update(
@@ -826,6 +1089,116 @@ class ValidationPublishIntegrationTests {
             employeeNo
         );
         return jdbcTemplate.queryForObject("SELECT id FROM crew_member WHERE crew_code = ?", Long.class, employeeNo);
+    }
+
+    private Long insertFlightTask(String taskCode, String startUtc, String endUtc) {
+        Long batchId = jdbcTemplate.queryForObject(
+            "SELECT id FROM task_plan_import_batch ORDER BY id LIMIT 1",
+            Long.class
+        );
+        jdbcTemplate.update(
+            """
+            INSERT INTO task_plan_item (
+              batch_id, task_code, task_type, title_zh, title_en, departure_airport, arrival_airport,
+              scheduled_start_utc, scheduled_end_utc, sector_count, status, aircraft_type, required_crew_pattern
+            )
+            VALUES (?, ?, 'FLIGHT', ?, ?, 'MFM', 'SIN', ?, ?, 1, 'ASSIGNED_DRAFT', 'A330', 'PIC+FO')
+            """,
+            batchId,
+            taskCode,
+            taskCode,
+            taskCode,
+            startUtc,
+            endUtc
+        );
+        return taskId(taskCode);
+    }
+
+    private void insertFlightBlockForCrew(
+        Long rosterVersionId,
+        Long crewId,
+        Long taskId,
+        String displayLabel,
+        int displayOrder
+    ) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO timeline_block (
+              roster_version_id, crew_member_id, task_plan_item_id, block_type,
+              start_utc, end_utc, display_label, status, assignment_role, display_order
+            )
+            SELECT ?, ?, id, 'FLIGHT', scheduled_start_utc, scheduled_end_utc, ?, 'PLANNED', 'PIC', ?
+            FROM task_plan_item
+            WHERE id = ?
+            """,
+            rosterVersionId,
+            crewId,
+            displayLabel,
+            displayOrder,
+            taskId
+        );
+    }
+
+    private void insertDutyBlockForCrew(
+        Long rosterVersionId,
+        Long crewId,
+        String startUtc,
+        String endUtc,
+        String displayLabel,
+        int displayOrder
+    ) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO timeline_block (
+              roster_version_id, crew_member_id, task_plan_item_id, block_type,
+              start_utc, end_utc, display_label, status, assignment_role, display_order
+            )
+            VALUES (?, ?, NULL, 'DUTY', ?, ?, ?, 'PLANNED', 'EXTRA', ?)
+            """,
+            rosterVersionId,
+            crewId,
+            startUtc,
+            endUtc,
+            displayLabel,
+            displayOrder
+        );
+    }
+
+    private void insertRestBlockForCrew(
+        Long rosterVersionId,
+        Long crewId,
+        String startUtc,
+        String endUtc,
+        String displayLabel,
+        int displayOrder
+    ) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO timeline_block (
+              roster_version_id, crew_member_id, task_plan_item_id, block_type,
+              start_utc, end_utc, display_label, status, assignment_role, display_order
+            )
+            VALUES (?, ?, NULL, 'REST', ?, ?, ?, 'PLANNED', 'EXTRA', ?)
+            """,
+            rosterVersionId,
+            crewId,
+            startUtc,
+            endUtc,
+            displayLabel,
+            displayOrder
+        );
+    }
+
+    private void activateReducedRestEvaluationRules() {
+        jdbcTemplate.update(
+            """
+            UPDATE rule_catalog
+            SET active_flag = TRUE,
+                version_status = 'ACTIVE'
+            WHERE rule_id IN ('RG-FDP-008', 'RG-REST-008')
+              AND catalog_entry_type = 'EVALUATION_RULE'
+            """
+        );
     }
 
     private void insertConsecutiveDutyDays(

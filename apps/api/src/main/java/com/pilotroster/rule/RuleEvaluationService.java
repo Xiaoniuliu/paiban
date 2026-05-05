@@ -50,12 +50,16 @@ public class RuleEvaluationService {
         "RG-DDO-001",
         "RG-DDO-002",
         "RG-DDO-003",
+        "RG-FDP-006",
+        "RG-FDP-008",
         "RG-FDP-007",
         "RG-HOUR-001",
         "RG-HOUR-002",
         "RG-HOUR-003",
         "RG-HOUR-006",
-        "RG-HOUR-007"
+        "RG-HOUR-007",
+        "RG-REST-004",
+        "RG-REST-008"
     );
 
     private final JdbcTemplate jdbcTemplate;
@@ -121,6 +125,7 @@ public class RuleEvaluationService {
             scopedDdoFacts(rosterFacts.ddoFactsByBlockId(), activeDdoBlockIds, latestRosterCrewIds),
             hits
         );
+        buildFdpRestHits(scopedFdpRestFacts(rosterFacts.fdpRestFacts(), latestRosterTaskIds, latestRosterCrewIds), activeBlocks, hits);
 
         Map<String, Long> ruleIdsByRuleId = ruleIdsByRuleId();
         Set<Long> managedRuleCatalogIds = new HashSet<>(ruleIdsByRuleId.values());
@@ -447,6 +452,87 @@ public class RuleEvaluationService {
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
+    private List<RuleDerivedFacts.FdpRestFact> scopedFdpRestFacts(
+        List<RuleDerivedFacts.FdpRestFact> fdpRestFacts,
+        Set<Long> latestRosterTaskIds,
+        Set<Long> latestRosterCrewIds
+    ) {
+        return fdpRestFacts.stream()
+            .filter(fact -> latestRosterTaskIds.contains(fact.taskId()))
+            .filter(fact -> latestRosterCrewIds.contains(fact.crewId()))
+            .toList();
+    }
+
+    private void buildFdpRestHits(
+        List<RuleDerivedFacts.FdpRestFact> fdpRestFacts,
+        List<TimelineBlock> activeBlocks,
+        List<RuleHit> hits
+    ) {
+        for (RuleDerivedFacts.FdpRestFact fact : fdpRestFacts) {
+            TimelineBlock previousRest = previousRestBlock(fact, activeBlocks);
+            if (fact.fdpMinutes() > fact.allowableFdpMinutes()) {
+                hits.add(fdpRestHit(
+                    fact,
+                    "RG-FDP-006",
+                    "Single FDP must not exceed the 14-hour P0 limit.",
+                    "SHORTEN_FDP",
+                    fdpEvidenceJson(fact)
+                ));
+            }
+            if (fact.fdpMinutes() > 18 * 60L && fact.restLocalNights() < 1) {
+                hits.add(fdpRestHit(
+                    fact,
+                    "RG-REST-004",
+                    "Duty over 18 hours must be followed by rest containing at least one local night.",
+                    "ADD_LOCAL_NIGHT_REST",
+                    restLocalNightEvidenceJson(fact)
+                ));
+            }
+            if (fact.precededByReducedRest()) {
+                hits.add(fdpRestHit(
+                    fact,
+                    "RG-FDP-008",
+                    "Reduced rest requires explicit special assessment before the following FDP is accepted.",
+                    "COMPLETE_SPECIAL_ASSESSMENT",
+                    reducedRestAssessmentEvidenceJson(fact, previousRest)
+                ));
+            }
+            if (fact.precededByReducedRest() && fact.extendedFdp() && fact.followingRestReduced()) {
+                hits.add(fdpRestHit(
+                    fact,
+                    "RG-REST-008",
+                    "Reduced rest cannot be chained after an extended FDP when the following rest is also reduced.",
+                    "BREAK_REDUCED_REST_CHAIN",
+                    reducedRestChainEvidenceJson(fact, previousRest)
+                ));
+            }
+        }
+    }
+
+    private TimelineBlock previousRestBlock(RuleDerivedFacts.FdpRestFact fact, List<TimelineBlock> activeBlocks) {
+        List<TimelineBlock> precedingCrewBlocks = activeBlocks.stream()
+            .filter(block -> java.util.Objects.equals(block.getCrewMemberId(), fact.crewId()))
+            .filter(block -> block.getEndUtc().compareTo(fact.fdpStartUtc()) <= 0)
+            .toList();
+        for (int index = precedingCrewBlocks.size() - 1; index >= 0; index -= 1) {
+            TimelineBlock block = precedingCrewBlocks.get(index);
+            if ("REST".equals(block.getBlockType())) {
+                return block;
+            }
+            if (isDutyProducingBlockType(block.getBlockType())) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private boolean isDutyProducingBlockType(String blockType) {
+        return switch (blockType) {
+            case "FLIGHT", "DUTY", "TRAINING", "STANDBY" -> true;
+            default -> false;
+        };
+    }
+
     private void addCrewHourLimitHit(
         List<RuleHit> hits,
         Long crewId,
@@ -614,6 +700,31 @@ public class RuleEvaluationService {
             message,
             recommendedAction,
             ddoRollingSequenceEvidenceJson(ruleId, fact)
+        );
+    }
+
+    private RuleHit fdpRestHit(
+        RuleDerivedFacts.FdpRestFact fact,
+        String ruleId,
+        String message,
+        String recommendedAction,
+        String evidenceJson
+    ) {
+        return new RuleHit(
+            ruleId,
+            "BLOCK",
+            "TASK",
+            fact.taskId(),
+            fact.crewId(),
+            fact.taskId(),
+            null,
+            fact.fdpStartUtc(),
+            fact.fdpEndUtc(),
+            "",
+            "",
+            message,
+            recommendedAction,
+            evidenceJson
         );
     }
 
@@ -1012,6 +1123,97 @@ public class RuleEvaluationService {
             + "\"windowEndUtc\":" + jsonInstant(fact.windowEndUtc()) + ","
             + "\"consecutiveDdoUnitsInWindow\":" + fact.consecutiveDdoUnitsInWindow() + ","
             + "\"assessedWindowCount\":" + fact.assessedWindowCount() + "}";
+    }
+
+    private static String fdpEvidenceJson(RuleDerivedFacts.FdpRestFact fact) {
+        return "{\"phase\":\"PHASE_3\","
+            + "\"ruleId\":\"RG-FDP-006\","
+            + "\"predicate\":\"fdp_minutes <= 840\","
+            + "\"actualMinutes\":" + fact.fdpMinutes() + ","
+            + "\"limitMinutes\":" + fact.allowableFdpMinutes() + ","
+            + "\"crewId\":" + fact.crewId() + ","
+            + "\"taskId\":" + fact.taskId() + ","
+            + "\"fdpStartUtc\":" + jsonInstant(fact.fdpStartUtc()) + ","
+            + "\"fdpEndUtc\":" + jsonInstant(fact.fdpEndUtc()) + ","
+            + "\"followingRestStartUtc\":" + jsonInstant(fact.followingRestStartUtc()) + ","
+            + "\"followingRestEndUtc\":" + jsonInstant(fact.followingRestEndUtc()) + ","
+            + "\"restLocalNights\":" + fact.restLocalNights() + "}";
+    }
+
+    private static String restLocalNightEvidenceJson(RuleDerivedFacts.FdpRestFact fact) {
+        return "{\"phase\":\"PHASE_3\","
+            + "\"ruleId\":\"RG-REST-004\","
+            + "\"predicate\":\"fdp_minutes <= 1080 || rest_local_nights >= 1\","
+            + "\"actualMinutes\":" + fact.fdpMinutes() + ","
+            + "\"limitMinutes\":1080,"
+            + "\"crewId\":" + fact.crewId() + ","
+            + "\"taskId\":" + fact.taskId() + ","
+            + "\"fdpStartUtc\":" + jsonInstant(fact.fdpStartUtc()) + ","
+            + "\"fdpEndUtc\":" + jsonInstant(fact.fdpEndUtc()) + ","
+            + "\"followingRestStartUtc\":" + jsonInstant(fact.followingRestStartUtc()) + ","
+            + "\"followingRestEndUtc\":" + jsonInstant(fact.followingRestEndUtc()) + ","
+            + "\"restLocalNights\":" + fact.restLocalNights() + "}";
+    }
+
+    private String reducedRestAssessmentEvidenceJson(
+        RuleDerivedFacts.FdpRestFact fact,
+        TimelineBlock previousRest
+    ) {
+        return "{\"phase\":\"PHASE_3\","
+            + "\"ruleId\":\"RG-FDP-008\","
+            + "\"predicate\":\"preceded_by_reduced_rest == false\","
+            + "\"crewId\":" + fact.crewId() + ","
+            + "\"taskId\":" + fact.taskId() + ","
+            + "\"actual\":{\"precededByReducedRest\":" + fact.precededByReducedRest()
+            + ",\"specialAssessmentSourceAvailable\":false"
+            + ",\"specialAssessmentPassed\":" + fact.specialAssessmentPassed() + "},"
+            + "\"previousRest\":" + restWindowJson(previousRest, fact.precededByReducedRest()) + ","
+            + "\"fdp\":" + fdpWindowJson(fact) + ","
+            + "\"nextRest\":" + nextRestWindowJson(fact) + ","
+            + "\"chainReason\":\"REDUCED_REST_REQUIRES_SPECIAL_ASSESSMENT\"}";
+    }
+
+    private String reducedRestChainEvidenceJson(
+        RuleDerivedFacts.FdpRestFact fact,
+        TimelineBlock previousRest
+    ) {
+        return "{\"phase\":\"PHASE_3\","
+            + "\"ruleId\":\"RG-REST-008\","
+            + "\"predicate\":\"!(preceded_by_reduced_rest && extended_fdp && following_rest_reduced)\","
+            + "\"crewId\":" + fact.crewId() + ","
+            + "\"taskId\":" + fact.taskId() + ","
+            + "\"actual\":{\"precededByReducedRest\":" + fact.precededByReducedRest()
+            + ",\"extendedFdp\":" + fact.extendedFdp()
+            + ",\"followingRestReduced\":" + fact.followingRestReduced() + "},"
+            + "\"previousRest\":" + restWindowJson(previousRest, fact.precededByReducedRest()) + ","
+            + "\"fdp\":" + fdpWindowJson(fact) + ","
+            + "\"nextRest\":" + nextRestWindowJson(fact) + ","
+            + "\"chainReason\":\"REDUCED_REST_AFTER_EXTENDED_FDP\"}";
+    }
+
+    private static String fdpWindowJson(RuleDerivedFacts.FdpRestFact fact) {
+        return "{\"startUtc\":" + jsonInstant(fact.fdpStartUtc())
+            + ",\"endUtc\":" + jsonInstant(fact.fdpEndUtc())
+            + ",\"minutes\":" + fact.fdpMinutes()
+            + ",\"allowableMinutes\":" + fact.allowableFdpMinutes()
+            + ",\"extended\":" + fact.extendedFdp() + "}";
+    }
+
+    private static String nextRestWindowJson(RuleDerivedFacts.FdpRestFact fact) {
+        return "{\"startUtc\":" + jsonInstant(fact.followingRestStartUtc())
+            + ",\"endUtc\":" + jsonInstant(fact.followingRestEndUtc())
+            + ",\"localNights\":" + fact.restLocalNights()
+            + ",\"reduced\":" + fact.followingRestReduced() + "}";
+    }
+
+    private String restWindowJson(TimelineBlock restBlock, boolean reduced) {
+        long minutes = restBlock == null ? 0 : Duration.between(restBlock.getStartUtc(), restBlock.getEndUtc()).toMinutes();
+        int localNights = restBlock == null ? 0 : localNightCount(restBlock.getStartUtc(), restBlock.getEndUtc());
+        return "{\"startUtc\":" + jsonInstant(restBlock == null ? null : restBlock.getStartUtc())
+            + ",\"endUtc\":" + jsonInstant(restBlock == null ? null : restBlock.getEndUtc())
+            + ",\"minutes\":" + minutes
+            + ",\"localNights\":" + localNights
+            + ",\"reduced\":" + reduced + "}";
     }
 
     private static String contributorJson(List<RuleDerivedFacts.CrewHourContributor> contributors) {
