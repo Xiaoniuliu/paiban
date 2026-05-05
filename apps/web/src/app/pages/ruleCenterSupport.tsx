@@ -160,8 +160,13 @@ function ruleSourceIdsText(rule: RuleCatalog) {
 
 function ruleHitHref(hit: RuleRecentHit) {
   const params = new URLSearchParams();
-  if (hit.taskId) params.set('taskId', String(hit.taskId));
-  if (hit.crewId) params.set('crewId', String(hit.crewId));
+  params.set('hitId', String(hit.hitId));
+  if (hit.rosterVersionId != null) params.set('rosterVersionId', String(hit.rosterVersionId));
+  if (hit.taskId != null) params.set('taskId', String(hit.taskId));
+  if (hit.targetType) params.set('targetType', hit.targetType);
+  if (hit.targetId != null) params.set('targetId', String(hit.targetId));
+  if (hit.timelineBlockId != null) params.set('timelineBlockId', String(hit.timelineBlockId));
+  if (hit.crewId != null) params.set('crewId', String(hit.crewId));
   if (hit.ruleId) params.set('ruleId', hit.ruleId);
   const query = params.toString();
   return `/validation-center/violation-handling${query ? `?${query}` : ''}`;

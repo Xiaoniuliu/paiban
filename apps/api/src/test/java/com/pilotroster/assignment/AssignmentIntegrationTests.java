@@ -40,6 +40,7 @@ class AssignmentIntegrationTests {
 
     @AfterEach
     void resetAssignmentSeed() {
+        jdbcTemplate.update("DELETE FROM domain_event WHERE payload_json = '{\"testFixture\":\"assignment-integration\"}'");
         jdbcTemplate.update(
             """
             DELETE caf
@@ -475,7 +476,7 @@ class AssignmentIntegrationTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[?(@.displayLabel == 'NX8810 MFM-TPE')].crewId").value(hasItem(reliefCrewId.intValue())));
 
-        Long archiveCaseId = createArchiveCase(taskId);
+        Long archiveCaseId = createPublishedArchiveCase(taskId);
         mockMvc.perform(get("/api/archive/cases/" + archiveCaseId).header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.crewForms.length()").value(3))
@@ -1025,11 +1026,16 @@ class AssignmentIntegrationTests {
               ),
               0
             FROM task_plan_item tpi
-            JOIN roster_version rv ON rv.status = 'DRAFT'
+            JOIN (
+              SELECT roster_version_id AS id
+              FROM timeline_block
+              WHERE task_plan_item_id = ?
+              ORDER BY id DESC
+              LIMIT 1
+            ) rv
             WHERE tpi.id = ?
-            ORDER BY rv.id DESC
-            LIMIT 1
             """,
+            taskId,
             taskId
         );
         Long archiveCaseId = jdbcTemplate.queryForObject(
@@ -1066,6 +1072,39 @@ class AssignmentIntegrationTests {
             archiveCaseId
         );
         return archiveCaseId;
+    }
+
+    private Long createPublishedArchiveCase(Long taskId) {
+        Long rosterVersionId = jdbcTemplate.queryForObject(
+            """
+            SELECT roster_version_id
+            FROM timeline_block
+            WHERE task_plan_item_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            Long.class,
+            taskId
+        );
+        jdbcTemplate.update("UPDATE task_plan_item SET status = 'PUBLISHED' WHERE id = ?", taskId);
+        jdbcTemplate.update(
+            """
+            UPDATE timeline_block
+            SET status = 'PUBLISHED'
+            WHERE task_plan_item_id = ?
+              AND roster_version_id = ?
+            """,
+            taskId,
+            rosterVersionId
+        );
+        jdbcTemplate.update(
+            """
+            INSERT INTO domain_event (event_type, aggregate_type, aggregate_id, payload_json)
+            VALUES ('RosterPublished', 'RosterVersion', ?, '{"testFixture":"assignment-integration"}')
+            """,
+            rosterVersionId.toString()
+        );
+        return createArchiveCase(taskId);
     }
 
     private String loginToken(String username, String password) throws Exception {

@@ -23,16 +23,20 @@ export default function App() {
   const preferenceTouchedRef = useRef(false);
   const currentRoute = routeForPath(location.pathname);
 
-  const logout = useCallback(() => {
+  const clearAuth = useCallback(() => {
     localStorage.removeItem(tokenStorageKey);
     setToken(null);
     setUser(null);
     setPreferencesLoaded(false);
     preferenceTouchedRef.current = false;
-    navigate('/', { replace: true });
-  }, [navigate]);
+  }, []);
 
-  const api = useMemo(() => new ApiClient(token, logout), [token]);
+  const logout = useCallback(() => {
+    clearAuth();
+    navigate('/', { replace: true });
+  }, [clearAuth, navigate]);
+
+  const api = useMemo(() => new ApiClient(token, clearAuth), [clearAuth, token]);
   const t = useMemo(() => createTranslator(language), [language]);
 
   useEffect(() => {
@@ -50,9 +54,9 @@ export default function App() {
       .then((profile) => {
         setUser(profile);
       })
-      .catch(logout)
+      .catch(clearAuth)
       .finally(() => setBootstrapping(false));
-  }, [api, token]);
+  }, [api, clearAuth, token]);
 
   useEffect(() => {
     if (!token || !user || preferencesLoaded) return;
@@ -96,7 +100,7 @@ export default function App() {
     preferenceTouchedRef.current = false;
     const targetRoute = routeForPath(location.pathname);
     const targetPath = targetRoute && canAccessRoute(targetRoute, result.user.role)
-      ? targetRoute.path
+      ? `${location.pathname}${location.search}`
       : defaultPathForRole(result.user.role);
     navigate(targetPath, { replace: true });
   };

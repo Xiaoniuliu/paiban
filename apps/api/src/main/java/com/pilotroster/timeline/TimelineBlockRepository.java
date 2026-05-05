@@ -2,6 +2,7 @@ package com.pilotroster.timeline;
 
 import java.util.List;
 import java.time.Instant;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TimelineBlockRepository extends JpaRepository<TimelineBlock, Long> {
@@ -11,6 +12,10 @@ public interface TimelineBlockRepository extends JpaRepository<TimelineBlock, Lo
     List<TimelineBlock> findAllByEndUtcAfterAndStartUtcBeforeOrderByStartUtcAsc(Instant windowStartUtc, Instant windowEndUtc);
 
     List<TimelineBlock> findAllByRosterVersionIdOrderByStartUtcAsc(Long rosterVersionId);
+
+    List<TimelineBlock> findAllByRosterVersionIdAndStatusOrderByStartUtcAsc(Long rosterVersionId, String status);
+
+    Optional<TimelineBlock> findFirstByStatusOrderByRosterVersionIdDesc(String status);
 
     List<TimelineBlock> findAllByTaskPlanItemIdOrderByIdAsc(Long taskPlanItemId);
 

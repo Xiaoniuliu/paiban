@@ -381,26 +381,31 @@ export type ValidationIssueSeverity = 'BLOCK' | 'WARNING';
 export interface ValidationIssue {
   id: string;
   hitId: number | null;
-  taskId: number;
+  taskId: number | null;
   crewId: number | null;
   timelineBlockId: number | null;
   targetType: string | null;
   targetId: number | null;
   taskCode: string;
   route: string;
-  startUtc: string;
-  endUtc: string;
+  startUtc: string | null;
+  endUtc: string | null;
   severity: ValidationIssueSeverity;
   ruleId: string;
   ruleTitle: string;
+  ruleTitleZh?: string | null;
+  ruleTitleEn?: string | null;
   message: string;
   actionType: 'ASSIGNMENT_DRAWER' | 'STATUS_REPAIR' | 'REVIEW' | string;
+  recommendedAction?: string | null;
   status: string;
   evidenceWindowStartUtc: string | null;
   evidenceWindowEndUtc: string | null;
+  evidenceJson?: string | null;
 }
 
 export interface ValidationIssueList {
+  rosterVersionId?: number | null;
   rosterVersionNo: string;
   rosterVersionStatus: string;
   blockedCount: number;
@@ -409,6 +414,7 @@ export interface ValidationIssueList {
 }
 
 export interface ValidationPublishSummary {
+  rosterVersionId?: number | null;
   rosterVersionNo: string;
   rosterVersionStatus: string;
   validatedAtUtc: string | null;
@@ -674,6 +680,7 @@ export interface RuleCatalog {
 
 export interface RuleRecentHit {
   hitId: number;
+  rosterVersionId?: number | null;
   ruleId: string;
   severity: string;
   status: string;
@@ -684,8 +691,9 @@ export interface RuleRecentHit {
   timelineBlockId: number | null;
   evidenceWindowStartUtc: string | null;
   evidenceWindowEndUtc: string | null;
+  evidenceJson?: string | null;
   message: string;
-  recommendedAction: string;
+  recommendedAction: string | null;
   createdAtUtc: string | null;
   taskCode: string | null;
   route: string | null;

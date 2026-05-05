@@ -1,9 +1,11 @@
 package com.pilotroster.publish;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -33,8 +35,11 @@ class PublishResultIntegrationTests {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    private Long domainEventHighWaterMark;
+
     @BeforeEach
     void ensurePublishSeeds() throws Exception {
+        domainEventHighWaterMark = jdbcTemplate.queryForObject("SELECT COALESCE(MAX(id), 0) FROM domain_event", Long.class);
         if (findTaskId("NX8810") != null && findTaskId("NX8811") != null) {
             return;
         }
@@ -52,8 +57,43 @@ class PublishResultIntegrationTests {
 
     @AfterEach
     void resetPublishFixtures() {
-        jdbcTemplate.update("DELETE FROM violation_hit");
+        deletePublishFixtureHits();
         jdbcTemplate.update("DELETE FROM timeline_block WHERE display_label LIKE 'TEST PUBLISH %'");
+        jdbcTemplate.update(
+            """
+            DELETE de
+            FROM domain_event de
+            LEFT JOIN roster_version rv ON rv.id = CAST(de.aggregate_id AS UNSIGNED)
+            WHERE de.event_type = 'RosterPublished'
+              AND de.aggregate_type = 'RosterVersion'
+              AND rv.version_no LIKE 'RV-TEST-PUBLISH-%'
+            """
+        );
+        if (domainEventHighWaterMark != null) {
+            jdbcTemplate.update(
+                """
+                DELETE de
+                FROM domain_event de
+                WHERE de.event_type = 'RosterPublished'
+                  AND de.aggregate_type = 'RosterVersion'
+                  AND de.id > ?
+                  AND EXISTS (
+                      SELECT 1
+                      FROM timeline_block tb
+                      JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id
+                      WHERE tb.roster_version_id = CAST(de.aggregate_id AS UNSIGNED)
+                        AND (
+                            tpi.task_code IN ('NX8810', 'NX8811', 'NX9001', 'TEST001',
+                                              'TESTPUB_OUT', 'TESTPUB_HIST', 'TESTPUB_STALE',
+                                              'TESTPUB_STALE_STATUS')
+                            OR tb.display_label LIKE 'TEST PUBLISH %'
+                        )
+                  )
+                """,
+                domainEventHighWaterMark
+            );
+        }
+        jdbcTemplate.update("DELETE FROM roster_version WHERE version_no LIKE 'RV-TEST-PUBLISH-%'");
         jdbcTemplate.update(
             """
             UPDATE timeline_block tb
@@ -64,6 +104,7 @@ class PublishResultIntegrationTests {
         );
         jdbcTemplate.update("UPDATE task_plan_item SET status = 'UNASSIGNED' WHERE task_code IN ('NX8810', 'NX8811')");
         jdbcTemplate.update("UPDATE task_plan_item SET status = 'UNASSIGNED' WHERE task_code IN ('NX9001', 'TEST001')");
+        jdbcTemplate.update("DELETE FROM task_plan_item WHERE task_code IN ('TESTPUB_OUT', 'TESTPUB_HIST', 'TESTPUB_STALE', 'TESTPUB_STALE_STATUS')");
         jdbcTemplate.update(
             """
             DELETE tpi
@@ -79,10 +120,19 @@ class PublishResultIntegrationTests {
     @Test
     void publishEndpointStillBlocksWhenValidationBlockersRemain() throws Exception {
         String token = loginToken("dispatcher01", "Admin123!");
+        insertBlockingDdoBlock(latestDraftRosterVersionId());
 
         mockMvc.perform(get("/api/publish/results").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.summary.blockedCount").value(greaterThanOrEqualTo(2)))
+            .andExpect(jsonPath("$.data.summary.blockedCount").value(0))
+            .andExpect(jsonPath("$.data.summary.canPublish").value(false));
+
+        mockMvc.perform(post("/api/publish/results/validate")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.summary.blockedCount").value(greaterThanOrEqualTo(1)))
             .andExpect(jsonPath("$.data.summary.canPublish").value(false));
 
         mockMvc.perform(get("/api/publish-results").header("Authorization", "Bearer " + token))
@@ -146,8 +196,108 @@ class PublishResultIntegrationTests {
             .andExpect(status().isConflict());
     }
 
+    @Test
+    void publishAndResultRowsAreLimitedToCurrentRosterScope() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        neutralizeSeedBlockers();
+        Long historicalRosterId = insertTestRosterVersion("RV-TEST-PUBLISH-HISTORY");
+        Long currentRosterId = insertTestRosterVersion("RV-TEST-PUBLISH-CURRENT");
+        Long crewId = firstCrewId("CAPTAIN");
+        preparePublishableDrafts(currentRosterId);
+        Long outOfScopeTaskId = insertScopedTask("TESTPUB_OUT", "2026-04-29 02:00:00", "2026-04-29 06:00:00", "ASSIGNED_DRAFT");
+        Long historicalTaskId = insertScopedTask("TESTPUB_HIST", "2026-04-30 02:00:00", "2026-04-30 06:00:00", "PUBLISHED");
+        insertPublishedCandidateBlock(
+            historicalRosterId,
+            crewId,
+            outOfScopeTaskId,
+            "PIC",
+            0,
+            "TEST PUBLISH OUT OF CURRENT SCOPE"
+        );
+        jdbcTemplate.update("UPDATE timeline_block SET status = 'ASSIGNED_DRAFT' WHERE task_plan_item_id = ?", outOfScopeTaskId);
+        insertPublishedCandidateBlock(
+            historicalRosterId,
+            crewId,
+            historicalTaskId,
+            "PIC",
+            0,
+            "TEST PUBLISH HISTORICAL RESULT"
+        );
+        jdbcTemplate.update("UPDATE timeline_block SET status = 'PUBLISHED' WHERE task_plan_item_id = ?", historicalTaskId);
+
+        mockMvc.perform(post("/api/publish/results/publish")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"managerConfirmed\":true}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(hasItem("NX8810")))
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(hasItem("NX8811")))
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(not(hasItem("TESTPUB_HIST"))))
+            .andExpect(jsonPath("$.data.crewResults[*].tasks[*].taskCode").value(not(hasItem("TESTPUB_HIST"))));
+
+        assertThat(taskStatus(outOfScopeTaskId)).isEqualTo("ASSIGNED_DRAFT");
+
+        Long staleCopiedRosterId = insertTestRosterVersion("RV-TEST-PUBLISH-STALE-COPIED");
+        Long staleTaskId = insertScopedTask("TESTPUB_STALE", "2026-05-01 02:00:00", "2026-05-01 06:00:00", "PUBLISHED");
+        insertPublishedCandidateBlock(
+            staleCopiedRosterId,
+            crewId,
+            staleTaskId,
+            "PIC",
+            0,
+            "TEST PUBLISH STALE COPIED RESULT"
+        );
+        jdbcTemplate.update("UPDATE timeline_block SET status = 'PUBLISHED' WHERE task_plan_item_id = ?", staleTaskId);
+
+        mockMvc.perform(get("/api/publish/results").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(hasItem("NX8810")))
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(hasItem("NX8811")))
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(not(hasItem("TESTPUB_STALE"))))
+            .andExpect(jsonPath("$.data.crewResults[*].tasks[*].taskCode").value(not(hasItem("TESTPUB_STALE"))));
+    }
+
+    @Test
+    void publishResultsIgnoreNewerPublishedEventWithoutPublishedBlocks() throws Exception {
+        String token = loginToken("dispatcher01", "Admin123!");
+        neutralizeSeedBlockers();
+        preparePublishableDrafts();
+
+        mockMvc.perform(post("/api/publish/results/publish")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"managerConfirmed\":true}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(hasItem("NX8810")))
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(hasItem("NX8811")));
+
+        Long emptyRosterId = insertTestRosterVersion("RV-TEST-PUBLISH-EMPTY-EVENT");
+        insertRosterPublishedEvent(emptyRosterId);
+        Long staleStatusRosterId = insertTestRosterVersion("RV-TEST-PUBLISH-STALE-STATUS");
+        Long staleStatusTaskId = insertScopedTask("TESTPUB_STALE_STATUS", "2026-05-02 02:00:00", "2026-05-02 06:00:00", "ASSIGNED_DRAFT");
+        insertPublishedCandidateBlock(
+            staleStatusRosterId,
+            firstCrewId("CAPTAIN"),
+            staleStatusTaskId,
+            "PIC",
+            0,
+            "TEST PUBLISH STALE STATUS RESULT"
+        );
+        jdbcTemplate.update("UPDATE timeline_block SET status = 'PUBLISHED' WHERE task_plan_item_id = ?", staleStatusTaskId);
+        insertRosterPublishedEvent(staleStatusRosterId);
+
+        mockMvc.perform(get("/api/publish/results").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(hasItem("NX8810")))
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(hasItem("NX8811")))
+            .andExpect(jsonPath("$.data.flightResults[*].taskCode").value(not(hasItem("TESTPUB_STALE_STATUS"))));
+    }
+
     private void preparePublishableDrafts() {
-        Long rosterVersionId = latestDraftRosterVersionId();
+        preparePublishableDrafts(latestDraftRosterVersionId());
+    }
+
+    private void preparePublishableDrafts(Long rosterVersionId) {
         List<Long> captains = jdbcTemplate.queryForList(
             "SELECT id FROM crew_member WHERE role_code = 'CAPTAIN' ORDER BY id LIMIT 2",
             Long.class
@@ -178,7 +328,22 @@ class PublishResultIntegrationTests {
             """
         );
         jdbcTemplate.update("UPDATE task_plan_item SET status = 'CANCELLED' WHERE task_code IN ('NX9001', 'TEST001')");
-        jdbcTemplate.update("DELETE FROM violation_hit");
+        deletePublishFixtureHits();
+    }
+
+    private void deletePublishFixtureHits() {
+        jdbcTemplate.update(
+            """
+            DELETE vh
+            FROM violation_hit vh
+            LEFT JOIN roster_version rv ON rv.id = vh.roster_version_id
+            LEFT JOIN task_plan_item tpi ON tpi.id = vh.task_id
+            LEFT JOIN timeline_block tb ON tb.id = vh.timeline_block_id
+            WHERE rv.version_no LIKE 'RV-TEST-PUBLISH-%'
+               OR tpi.task_code IN ('NX8810', 'NX8811', 'NX9001', 'TEST001', 'TESTPUB_OUT', 'TESTPUB_HIST', 'TESTPUB_STALE', 'TESTPUB_STALE_STATUS')
+               OR tb.display_label LIKE 'TEST PUBLISH %'
+            """
+        );
     }
 
     private void insertPublishedCandidateBlock(
@@ -204,6 +369,81 @@ class PublishResultIntegrationTests {
             displayLabel,
             assignmentRole,
             displayOrder,
+            taskId
+        );
+    }
+
+    private void insertBlockingDdoBlock(Long rosterVersionId) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO timeline_block (
+              roster_version_id, crew_member_id, task_plan_item_id, block_type,
+              start_utc, end_utc, display_label, status, assignment_role, display_order
+            )
+            VALUES (?, ?, NULL, 'DDO', '2026-04-29 00:00:00', '2026-04-30 08:00:00',
+                    'TEST PUBLISH DDO BLOCKER', 'PLANNED', 'DDO', 0)
+            """,
+            rosterVersionId,
+            firstCrewId("CAPTAIN")
+        );
+    }
+
+    private Long insertTestRosterVersion(String versionNo) {
+        jdbcTemplate.update(
+            "INSERT INTO roster_version (version_no, status, created_by) VALUES (?, 'DRAFT', NULL)",
+            versionNo
+        );
+        return jdbcTemplate.queryForObject(
+            "SELECT id FROM roster_version WHERE version_no = ?",
+            Long.class,
+            versionNo
+        );
+    }
+
+    private void insertRosterPublishedEvent(Long rosterVersionId) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO domain_event (event_type, aggregate_type, aggregate_id, payload_json)
+            VALUES ('RosterPublished', 'RosterVersion', ?, '{"testFixture":"publish-integration"}')
+            """,
+            rosterVersionId.toString()
+        );
+    }
+
+    private Long insertScopedTask(String taskCode, String startUtc, String endUtc, String status) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO task_plan_item (
+              batch_id, task_code, task_type, title_zh, title_en,
+              departure_airport, arrival_airport, scheduled_start_utc, scheduled_end_utc,
+              sector_count, aircraft_type, aircraft_no, required_crew_pattern, status, source_status
+            )
+            SELECT id, ?, 'FLIGHT', ?, ?, 'MFM', 'TPE', ?, ?, 1, 'A330', 'B-LNM', 'PIC+FO', ?, 'ACCEPTED'
+            FROM task_plan_import_batch
+            WHERE batch_no = 'TEST-PUBLISH-SEED-01'
+            """,
+            taskCode,
+            taskCode,
+            taskCode,
+            startUtc,
+            endUtc,
+            status
+        );
+        return taskId(taskCode);
+    }
+
+    private Long firstCrewId(String roleCode) {
+        return jdbcTemplate.queryForObject(
+            "SELECT id FROM crew_member WHERE role_code = ? ORDER BY id LIMIT 1",
+            Long.class,
+            roleCode
+        );
+    }
+
+    private String taskStatus(Long taskId) {
+        return jdbcTemplate.queryForObject(
+            "SELECT status FROM task_plan_item WHERE id = ?",
+            String.class,
             taskId
         );
     }

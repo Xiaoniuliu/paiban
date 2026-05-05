@@ -30,8 +30,24 @@ class RunDayAdjustmentIntegrationTests {
     @BeforeEach
     @AfterEach
     void resetRunDayAdjustments() {
-        jdbcTemplate.update("DELETE FROM violation_hit");
-        jdbcTemplate.update("DELETE FROM run_day_adjustment");
+        jdbcTemplate.update(
+            """
+            DELETE vh
+            FROM violation_hit vh
+            LEFT JOIN task_plan_item tpi ON tpi.id = vh.task_id
+            LEFT JOIN timeline_block tb ON tb.id = vh.timeline_block_id
+            WHERE tpi.task_code = 'NX9001'
+               OR tb.display_label = 'REST NX9001'
+            """
+        );
+        jdbcTemplate.update(
+            """
+            DELETE rda
+            FROM run_day_adjustment rda
+            JOIN task_plan_item tpi ON tpi.id = rda.task_plan_item_id
+            WHERE tpi.task_code = 'NX9001'
+            """
+        );
         jdbcTemplate.update(
             """
             DELETE caf

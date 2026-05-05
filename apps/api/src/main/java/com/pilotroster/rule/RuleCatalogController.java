@@ -118,6 +118,7 @@ public class RuleCatalogController {
         return ApiResponse.ok(jdbcTemplate.query(
             """
             SELECT vh.id,
+                   vh.roster_version_id,
                    vh.severity,
                    vh.status,
                    vh.target_type,
@@ -127,6 +128,7 @@ public class RuleCatalogController {
                    vh.timeline_block_id,
                    vh.evidence_window_start_utc,
                    vh.evidence_window_end_utc,
+                   vh.evidence_json,
                    vh.message,
                    vh.recommended_action,
                    vh.created_at,
@@ -140,11 +142,24 @@ public class RuleCatalogController {
             LEFT JOIN task_plan_item tpi ON tpi.id = vh.task_id
             LEFT JOIN crew_member cm ON cm.id = vh.crew_id
             WHERE rc.rule_id = ?
+              AND rc.active_flag = TRUE
+              AND rc.catalog_entry_type = 'EVALUATION_RULE'
+              AND (rc.severity_default = 'P0'
+                   OR rc.severity_default LIKE 'P0 %'
+                   OR rc.severity_default = 'BLOCK')
+              AND vh.status <> 'CLOSED'
+              AND vh.roster_version_id = (
+                  SELECT rv.id
+                  FROM roster_version rv
+                  ORDER BY rv.id DESC
+                  LIMIT 1
+              )
             ORDER BY vh.created_at DESC, vh.id DESC
             LIMIT 10
             """,
             (rs, rowNum) -> new RuleRecentHitResponse(
                 rs.getLong("id"),
+                rs.getLong("roster_version_id"),
                 ruleId,
                 rs.getString("severity"),
                 rs.getString("status"),
@@ -155,6 +170,7 @@ public class RuleCatalogController {
                 nullableLong(rs.getObject("timeline_block_id")),
                 nullableInstant(rs.getTimestamp("evidence_window_start_utc")),
                 nullableInstant(rs.getTimestamp("evidence_window_end_utc")),
+                rs.getString("evidence_json"),
                 rs.getString("message"),
                 rs.getString("recommended_action"),
                 nullableInstant(rs.getTimestamp("created_at")),
@@ -263,6 +279,7 @@ public class RuleCatalogController {
 
     public record RuleRecentHitResponse(
         Long hitId,
+        Long rosterVersionId,
         String ruleId,
         String severity,
         String status,
@@ -273,6 +290,7 @@ public class RuleCatalogController {
         Long timelineBlockId,
         Instant evidenceWindowStartUtc,
         Instant evidenceWindowEndUtc,
+        String evidenceJson,
         String message,
         String recommendedAction,
         Instant createdAtUtc,

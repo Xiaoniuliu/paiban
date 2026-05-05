@@ -17,6 +17,176 @@ test('unauthenticated users see the login page', async ({ page }) => {
   await expect(page.getByRole('button', { name: '登录' })).toBeVisible();
 });
 
+test('login preserves precise issue URL query params', async ({ page }) => {
+  await page.route('**/api/rostering-workbench/validation-publish/issues', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      json: {
+        success: true,
+        data: {
+          rosterVersionId: 7001,
+          rosterVersionNo: 'DRAFT-E2E',
+          rosterVersionStatus: 'DRAFT',
+          blockedCount: 0,
+          warningCount: 0,
+          issues: [],
+        },
+      },
+    });
+  });
+
+  await page.goto('/validation-center/violation-handling?hitId=9001&rosterVersionId=7001&taskId=8801&ruleId=R-E2E-001');
+  await expect(page.getByRole('heading', { name: '飞行员排班系统' })).toBeVisible();
+  await page.getByLabel('用户名').fill('dispatcher01');
+  await page.getByLabel('密码').fill('Admin123!');
+  await page.getByRole('button', { name: '登录' }).click();
+
+  await expect(page.getByRole('button', { name: /退出|Sign Out/ })).toBeVisible();
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*hitId=9001/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*rosterVersionId=7001/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*taskId=8801/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*ruleId=R-E2E-001/);
+});
+
+test('issue deep links still resolve when legacy issue responses omit rosterVersionId', async ({ page }) => {
+  await page.route('**/api/rostering-workbench/validation-publish/issues', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      json: {
+        success: true,
+        data: {
+          rosterVersionNo: 'DRAFT-E2E',
+          rosterVersionStatus: 'DRAFT',
+          blockedCount: 1,
+          warningCount: 0,
+          issues: [{
+            id: 'legacy-e2e-hit',
+            hitId: 9001,
+            taskId: 8801,
+            crewId: null,
+            timelineBlockId: null,
+            targetType: 'TASK',
+            targetId: 8801,
+            taskCode: 'NX8801',
+            route: 'MFM-TPE',
+            startUtc: '2026-05-03T01:00:00Z',
+            endUtc: '2026-05-03T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-E2E-001',
+            ruleTitle: 'Legacy response hit',
+            message: 'Matched even without rosterVersionId in the response.',
+            actionType: 'STATUS_REPAIR',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-03T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-03T05:00:00Z',
+          }],
+        },
+      },
+    });
+  });
+
+  await page.goto('/validation-center/violation-handling?hitId=9001&rosterVersionId=7001&ruleId=R-E2E-001');
+  await page.getByLabel('用户名').fill('dispatcher01');
+  await page.getByLabel('密码').fill('Admin123!');
+  await page.getByRole('button', { name: '登录' }).click();
+
+  await expect(page.getByRole('heading', { level: 1, name: '违规处理' })).toBeVisible();
+  await expect(page.getByTestId('issue-handling-detail')).toContainText('Matched even without rosterVersionId');
+});
+
+test('issue deep links show stale state when hitId no longer exists', async ({ page }) => {
+  await page.route('**/api/rostering-workbench/validation-publish/issues', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      json: {
+        success: true,
+        data: {
+          rosterVersionId: 7001,
+          rosterVersionNo: 'DRAFT-E2E',
+          rosterVersionStatus: 'DRAFT',
+          blockedCount: 1,
+          warningCount: 0,
+          issues: [{
+            id: 'current-similar-hit',
+            hitId: 9002,
+            taskId: 8801,
+            crewId: null,
+            timelineBlockId: null,
+            targetType: 'TASK',
+            targetId: 8801,
+            taskCode: 'NX8801',
+            route: 'MFM-TPE',
+            startUtc: '2026-05-03T01:00:00Z',
+            endUtc: '2026-05-03T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-E2E-001',
+            ruleTitle: 'Current similar issue',
+            message: 'This current issue must not be selected for stale hitId 9001.',
+            actionType: 'STATUS_REPAIR',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-03T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-03T05:00:00Z',
+          }],
+        },
+      },
+    });
+  });
+
+  await page.goto('/validation-center/violation-handling?hitId=9001&rosterVersionId=7001&taskId=8801&ruleId=R-E2E-001');
+  await page.getByLabel('用户名').fill('dispatcher01');
+  await page.getByLabel('密码').fill('Admin123!');
+  await page.getByRole('button', { name: '登录' }).click();
+
+  await expect(page.getByRole('heading', { level: 1, name: '违规处理' })).toBeVisible();
+  await expect(page.getByTestId('issue-handling-detail')).toContainText('关联命中已失效');
+  await expect(page.getByTestId('issue-handling-detail')).not.toContainText('This current issue must not be selected');
+});
+
+test('expired auth keeps precise issue URL query params for the next login', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('pilotRosterToken', 'expired-e2e-token'));
+  let meCalls = 0;
+  await page.route('**/api/auth/me', async (route) => {
+    meCalls += 1;
+    if (meCalls === 1) {
+      await route.fulfill({ status: 401, contentType: 'application/json', json: { message: 'Unauthorized' } });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route('**/api/rostering-workbench/validation-publish/issues', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      json: {
+        success: true,
+        data: {
+          rosterVersionId: 7001,
+          rosterVersionNo: 'DRAFT-E2E',
+          rosterVersionStatus: 'DRAFT',
+          blockedCount: 0,
+          warningCount: 0,
+          issues: [],
+        },
+      },
+    });
+  });
+
+  await page.goto('/validation-center/violation-handling?hitId=9001&rosterVersionId=7001&taskId=8801&ruleId=R-E2E-001');
+  await expect(page.getByRole('heading', { name: '飞行员排班系统' })).toBeVisible();
+  await page.getByLabel('用户名').fill('dispatcher01');
+  await page.getByLabel('密码').fill('Admin123!');
+  await page.getByRole('button', { name: '登录' }).click();
+
+  await expect(page.getByRole('button', { name: /退出|Sign Out/ })).toBeVisible();
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*hitId=9001/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*rosterVersionId=7001/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*taskId=8801/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*ruleId=R-E2E-001/);
+});
+
 test('dispatcher can login and read crew and rule data', async ({ page, request }) => {
   const token = await apiLogin(request);
   const batchId = await apiCreateBatch(request, token, `E2E-READ-${Date.now()}`);
@@ -49,12 +219,70 @@ test('dispatcher can login and read crew and rule data', async ({ page, request 
 });
 
 test('rule recent-hit context links open validation issue handling', async ({ page }) => {
+  await page.route('**/api/rostering-workbench/validation-publish/issues', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      json: {
+        success: true,
+        data: {
+          rosterVersionId: 7001,
+          rosterVersionNo: 'DRAFT-E2E',
+          rosterVersionStatus: 'DRAFT',
+          blockedCount: 1,
+          warningCount: 1,
+          issues: [{
+            id: 'e2e-distractor',
+            hitId: 9000,
+            taskId: 7701,
+            crewId: null,
+            timelineBlockId: null,
+            targetType: 'TASK',
+            targetId: 7701,
+            taskCode: 'NX7701',
+            route: 'MFM-SIN',
+            startUtc: '2026-05-04T01:00:00Z',
+            endUtc: '2026-05-04T05:00:00Z',
+            severity: 'WARNING',
+            ruleId: 'R-E2E-OTHER',
+            ruleTitle: 'Other recent hit',
+            message: 'This issue should not be selected.',
+            actionType: 'REVIEW',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-04T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-04T05:00:00Z',
+          }, {
+            id: 'e2e-hit-9001',
+            hitId: 9001,
+            taskId: 8801,
+            crewId: null,
+            timelineBlockId: null,
+            targetType: 'TASK',
+            targetId: 8801,
+            taskCode: 'NX8801',
+            route: 'MFM-TPE',
+            startUtc: '2026-05-03T01:00:00Z',
+            endUtc: '2026-05-03T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-E2E-001',
+            ruleTitle: 'E2E Recent Hit Rule',
+            message: 'Matched by recent-hit id.',
+            actionType: 'STATUS_REPAIR',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-03T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-03T05:00:00Z',
+          }],
+        },
+      },
+    });
+  });
   await page.route(/\/api\/rules\/R-E2E-001\/recent-hits$/, async (route) => {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         data: [{
           hitId: 9001,
+          rosterVersionId: 7001,
           ruleId: 'R-E2E-001',
           severity: 'P1',
           status: 'OPEN',
@@ -65,6 +293,7 @@ test('rule recent-hit context links open validation issue handling', async ({ pa
           timelineBlockId: null,
           evidenceWindowStartUtc: '2026-05-03T01:00:00Z',
           evidenceWindowEndUtc: '2026-05-03T05:00:00Z',
+          evidenceJson: '{"source":"e2e"}',
           message: 'E2E context link should open issue handling',
           recommendedAction: 'Review issue handling context',
           createdAtUtc: '2026-05-01T08:00:00Z',
@@ -123,8 +352,337 @@ test('rule recent-hit context links open validation issue handling', async ({ pa
   await expect(page.getByTestId('rule-detail-drawer')).toBeVisible();
   await expect(page.getByText('E2E context link should open issue handling')).toBeVisible();
   await page.getByRole('link', { name: '打开关联现场' }).click();
-  await expect(page).toHaveURL(/\/validation-center\/violation-handling/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*hitId=9001/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*rosterVersionId=7001/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*taskId=8801/);
+  await expect(page).toHaveURL(/\/validation-center\/violation-handling\?.*ruleId=R-E2E-001/);
   await expect(page.getByRole('heading', { level: 1, name: '违规处理' })).toBeVisible();
+  await expect(page.getByTestId('issue-handling-detail')).toContainText('Matched by recent-hit id.');
+});
+
+test('issue handling routes recommended actions to the matching business modules', async ({ page }) => {
+  await page.route('**/api/rostering-workbench/validation-publish/issues', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      json: {
+        success: true,
+        data: {
+          rosterVersionId: 7001,
+          rosterVersionNo: 'DRAFT-E2E',
+          rosterVersionStatus: 'DRAFT',
+          blockedCount: 5,
+          warningCount: 3,
+          issues: [{
+            id: 'e2e-fix-flight-plan',
+            hitId: 9201,
+            taskId: 8801,
+            crewId: null,
+            timelineBlockId: null,
+            targetType: 'TASK',
+            targetId: 8801,
+            taskCode: 'ACT-FP',
+            route: 'MFM-TPE',
+            startUtc: '2026-05-03T01:00:00Z',
+            endUtc: '2026-05-03T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-ACTION-FP',
+            ruleTitle: 'Flight plan action',
+            message: 'Fix flight plan data.',
+            actionType: 'FIX_FLIGHT_PLAN',
+            recommendedAction: 'FIX_FLIGHT_PLAN',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-03T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-03T05:00:00Z',
+          }, {
+            id: 'e2e-fix-task-time',
+            hitId: 9202,
+            taskId: 8802,
+            crewId: null,
+            timelineBlockId: null,
+            targetType: 'TASK',
+            targetId: 8802,
+            taskCode: 'ACT-TIME',
+            route: 'MFM-SIN',
+            startUtc: '2026-05-04T01:00:00Z',
+            endUtc: '2026-05-04T05:00:00Z',
+            severity: 'WARNING',
+            ruleId: 'R-ACTION-TIME',
+            ruleTitle: 'Task time action',
+            message: 'Fix task time data.',
+            actionType: 'FIX_TASK_TIME',
+            recommendedAction: 'FIX_TASK_TIME',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-04T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-04T05:00:00Z',
+          }, {
+            id: 'e2e-fix-assignment',
+            hitId: 9203,
+            taskId: 8803,
+            crewId: null,
+            timelineBlockId: null,
+            targetType: 'TASK',
+            targetId: 8803,
+            taskCode: 'ACT-DRAFT',
+            route: 'MFM-BKK',
+            startUtc: '2026-05-05T01:00:00Z',
+            endUtc: '2026-05-05T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-ACTION-DRAFT',
+            ruleTitle: 'Draft rostering action',
+            message: 'Fix draft rostering data.',
+            actionType: 'FIX_ASSIGNMENT',
+            recommendedAction: 'FIX_ASSIGNMENT',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-05T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-05T05:00:00Z',
+          }, {
+            id: 'e2e-adjust-crew-hours',
+            hitId: 9204,
+            taskId: null,
+            crewId: 101,
+            timelineBlockId: null,
+            targetType: 'CREW',
+            targetId: 101,
+            taskCode: '',
+            route: '',
+            startUtc: '2026-05-06T01:00:00Z',
+            endUtc: '2026-05-06T05:00:00Z',
+            severity: 'WARNING',
+            ruleId: 'R-ACTION-HOURS',
+            ruleTitle: 'Crew hours action',
+            message: 'Adjust crew hours.',
+            actionType: 'ADJUST_CREW_HOURS',
+            recommendedAction: 'ADJUST_CREW_HOURS',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-06T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-06T05:00:00Z',
+          }, {
+            id: 'e2e-add-relief-crew',
+            hitId: 9205,
+            taskId: 8805,
+            crewId: null,
+            timelineBlockId: null,
+            targetType: 'TASK',
+            targetId: 8805,
+            taskCode: 'ACT-RELIEF',
+            route: 'MFM-HND',
+            startUtc: '2026-05-07T01:00:00Z',
+            endUtc: '2026-05-07T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-ACTION-RELIEF',
+            ruleTitle: 'Relief crew action',
+            message: 'Add relief crew.',
+            actionType: 'REVIEW',
+            recommendedAction: 'ADD_RELIEF_CREW',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-07T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-07T05:00:00Z',
+          }, {
+            id: 'e2e-fix-timeline-block',
+            hitId: 9206,
+            taskId: 8806,
+            crewId: 102,
+            timelineBlockId: 3306,
+            targetType: 'TIMELINE_BLOCK',
+            targetId: 3306,
+            taskCode: 'ACT-TLINE',
+            route: 'MFM-KIX',
+            startUtc: '2026-05-08T01:00:00Z',
+            endUtc: '2026-05-08T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-ACTION-TLINE',
+            ruleTitle: 'Timeline block action',
+            message: 'Fix timeline block.',
+            actionType: 'REVIEW',
+            recommendedAction: 'FIX_TIMELINE_BLOCK',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-08T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-08T05:00:00Z',
+          }, {
+            id: 'e2e-extend-ddo',
+            hitId: 9207,
+            taskId: null,
+            crewId: 103,
+            timelineBlockId: 3307,
+            targetType: 'TIMELINE_BLOCK',
+            targetId: 3307,
+            taskCode: '',
+            route: '',
+            startUtc: '2026-05-09T01:00:00Z',
+            endUtc: '2026-05-09T05:00:00Z',
+            severity: 'WARNING',
+            ruleId: 'R-ACTION-DDO',
+            ruleTitle: 'Extend DDO action',
+            message: 'Extend DDO.',
+            actionType: 'REVIEW',
+            recommendedAction: 'EXTEND_DDO',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-09T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-09T05:00:00Z',
+          }, {
+            id: 'e2e-shorten-standby',
+            hitId: 9208,
+            taskId: null,
+            crewId: 104,
+            timelineBlockId: 3308,
+            targetType: 'TIMELINE_BLOCK',
+            targetId: 3308,
+            taskCode: '',
+            route: '',
+            startUtc: '2026-05-10T01:00:00Z',
+            endUtc: '2026-05-10T05:00:00Z',
+            severity: 'WARNING',
+            ruleId: 'R-ACTION-STANDBY',
+            ruleTitle: 'Shorten standby action',
+            message: 'Shorten standby.',
+            actionType: 'REVIEW',
+            recommendedAction: 'SHORTEN_STANDBY',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-10T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-10T05:00:00Z',
+          }],
+        },
+      },
+    });
+  });
+
+  await login(page);
+  await page.goto('/validation-center/violation-handling');
+  await expect(page.getByRole('heading', { level: 1, name: '违规处理' })).toBeVisible();
+  await expect(page.locator('tbody tr').filter({ hasText: 'ACT-FP' }).getByRole('link', { name: '航班计划' })).toHaveAttribute('href', '/flight-operations/flight-plan');
+  await expect(page.locator('tbody tr').filter({ hasText: 'ACT-TIME' }).getByRole('link', { name: '航班计划' })).toHaveAttribute('href', '/flight-operations/flight-plan');
+  await expect(page.locator('tbody tr').filter({ hasText: 'ACT-DRAFT' }).getByRole('link', { name: '草稿排班' })).toHaveAttribute('href', '/rostering-workbench/draft-rostering');
+  await expect(page.locator('tbody tr').filter({ hasText: 'ACT-RELIEF' }).getByRole('link', { name: '草稿排班' })).toHaveAttribute('href', '/rostering-workbench/draft-rostering');
+  await expect(page.locator('tbody tr').filter({ hasText: 'ACT-TLINE' }).getByRole('link', { name: '草稿排班' })).toHaveAttribute('href', '/rostering-workbench/draft-rostering');
+  await expect(page.locator('tbody tr').filter({ hasText: 'R-ACTION-DDO' }).getByRole('link', { name: '状态时间线' })).toHaveAttribute('href', '/crew-status/status-timeline');
+  await expect(page.locator('tbody tr').filter({ hasText: 'R-ACTION-STANDBY' }).getByRole('link', { name: '状态时间线' })).toHaveAttribute('href', '/crew-status/status-timeline');
+  await expect(page.locator('tbody tr').filter({ hasText: 'R-ACTION-HOURS' }).getByRole('link', { name: '机组小时' })).toHaveAttribute('href', '/reports/crew-hours');
+  await expect(page.getByRole('link', { name: '走例外流程' })).toHaveCount(0);
+});
+
+test('issue handling treats stale hitId as expired and uses scoped fallbacks without hitId', async ({ page }) => {
+  await page.route('**/api/rostering-workbench/validation-publish/issues', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      json: {
+        success: true,
+        data: {
+          rosterVersionId: 7001,
+          rosterVersionNo: 'DRAFT-E2E',
+          rosterVersionStatus: 'DRAFT',
+          blockedCount: 4,
+          warningCount: 0,
+          issues: [{
+            id: 'e2e-same-rule-wrong-task',
+            hitId: 9301,
+            taskId: 7701,
+            crewId: 501,
+            timelineBlockId: 3301,
+            targetType: 'TASK',
+            targetId: 7701,
+            taskCode: 'STALE-WRONG',
+            route: 'MFM-SIN',
+            startUtc: '2026-05-04T01:00:00Z',
+            endUtc: '2026-05-04T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-STALE-SAME',
+            ruleTitle: 'Same rule wrong task',
+            message: 'This same-rule issue must not be selected.',
+            actionType: 'FIX_FLIGHT_PLAN',
+            recommendedAction: 'FIX_FLIGHT_PLAN',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-04T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-04T05:00:00Z',
+          }, {
+            id: 'e2e-same-rule-right-task',
+            hitId: 9302,
+            taskId: 8801,
+            crewId: 502,
+            timelineBlockId: 3302,
+            targetType: 'TASK',
+            targetId: 8801,
+            taskCode: 'STALE-RIGHT',
+            route: 'MFM-TPE',
+            startUtc: '2026-05-03T01:00:00Z',
+            endUtc: '2026-05-03T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-STALE-SAME',
+            ruleTitle: 'Same rule right task',
+            message: 'Matched by taskId and ruleId after stale hitId.',
+            actionType: 'FIX_FLIGHT_PLAN',
+            recommendedAction: 'FIX_FLIGHT_PLAN',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-03T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-03T05:00:00Z',
+          }, {
+            id: 'e2e-fallback-task-match',
+            hitId: 9303,
+            taskId: 8802,
+            crewId: 503,
+            timelineBlockId: 3303,
+            targetType: 'TASK',
+            targetId: 8802,
+            taskCode: 'ORDER-TASK',
+            route: 'MFM-KUL',
+            startUtc: '2026-05-05T01:00:00Z',
+            endUtc: '2026-05-05T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-FALLBACK-ORDER',
+            ruleTitle: 'Fallback task match',
+            message: 'Task fallback must lose to timeline fallback.',
+            actionType: 'FIX_FLIGHT_PLAN',
+            recommendedAction: 'FIX_FLIGHT_PLAN',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-05T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-05T05:00:00Z',
+          }, {
+            id: 'e2e-fallback-timeline-match',
+            hitId: 9304,
+            taskId: 9902,
+            crewId: 504,
+            timelineBlockId: 4404,
+            targetType: 'TIMELINE_BLOCK',
+            targetId: 4404,
+            taskCode: 'ORDER-TLINE',
+            route: 'MFM-HKG',
+            startUtc: '2026-05-06T01:00:00Z',
+            endUtc: '2026-05-06T05:00:00Z',
+            severity: 'BLOCK',
+            ruleId: 'R-FALLBACK-ORDER',
+            ruleTitle: 'Fallback timeline match',
+            message: 'Timeline fallback wins over task fallback.',
+            actionType: 'FIX_FLIGHT_PLAN',
+            recommendedAction: 'FIX_FLIGHT_PLAN',
+            status: 'OPEN',
+            evidenceWindowStartUtc: '2026-05-06T01:00:00Z',
+            evidenceWindowEndUtc: '2026-05-06T05:00:00Z',
+          }],
+        },
+      },
+    });
+  });
+
+  await login(page);
+  await page.goto('/validation-center/violation-handling?hitId=9999&rosterVersionId=7001&taskId=8801&ruleId=R-STALE-SAME');
+  await expect(page.getByRole('heading', { level: 1, name: '违规处理' })).toBeVisible();
+  await expect(page.getByTestId('issue-handling-detail')).toContainText('关联命中已失效，请刷新或重新校验。');
+  await expect(page.getByTestId('issue-handling-detail')).not.toContainText('Matched by taskId and ruleId after stale hitId.');
+  await expect(page.getByTestId('issue-handling-detail')).not.toContainText('This same-rule issue must not be selected.');
+
+  await page.goto('/validation-center/violation-handling?rosterVersionId=7001&taskId=8801&ruleId=R-STALE-SAME');
+  await expect(page.getByTestId('issue-handling-detail')).toContainText('Matched by taskId and ruleId after stale hitId.');
+  await expect(page.getByTestId('issue-handling-detail')).not.toContainText('This same-rule issue must not be selected.');
+
+  await page.goto('/validation-center/violation-handling?rosterVersionId=9999&taskId=8801&ruleId=R-STALE-SAME');
+  await expect(page.getByTestId('issue-handling-detail')).toContainText('关联命中已失效，请刷新或重新校验。');
+  await expect(page.getByTestId('issue-handling-detail')).not.toContainText('Matched by taskId and ruleId after stale hitId.');
+  await expect(page.getByTestId('issue-handling-detail')).not.toContainText('This same-rule issue must not be selected.');
+
+  await page.goto('/validation-center/violation-handling?rosterVersionId=7001&taskId=8802&timelineBlockId=4404&ruleId=R-FALLBACK-ORDER');
+  await expect(page.getByTestId('issue-handling-detail')).toContainText('Timeline fallback wins over task fallback.');
+  await expect(page.getByTestId('issue-handling-detail')).not.toContainText('Task fallback must lose to timeline fallback.');
 });
 
 test('sidebar groups can collapse to parent-only navigation', async ({ page }) => {

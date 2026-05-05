@@ -22,9 +22,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,17 +43,20 @@ public class PublishResultService {
     private final TaskPlanItemRepository taskPlanItemRepository;
     private final TimelineBlockRepository timelineBlockRepository;
     private final CrewMemberRepository crewMemberRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     public PublishResultService(
         ValidationPublishService validationPublishService,
         TaskPlanItemRepository taskPlanItemRepository,
         TimelineBlockRepository timelineBlockRepository,
-        CrewMemberRepository crewMemberRepository
+        CrewMemberRepository crewMemberRepository,
+        JdbcTemplate jdbcTemplate
     ) {
         this.validationPublishService = validationPublishService;
         this.taskPlanItemRepository = taskPlanItemRepository;
         this.timelineBlockRepository = timelineBlockRepository;
         this.crewMemberRepository = crewMemberRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Transactional
@@ -139,7 +144,20 @@ public class PublishResultService {
     }
 
     private PublishedTruth publishedTruth() {
-        Map<Long, TaskPlanItem> tasksById = taskPlanItemRepository.findAllByOrderByScheduledStartUtcAsc().stream()
+        Optional<Long> latestPublishedRosterId = latestPublishedRosterVersionId();
+        if (latestPublishedRosterId.isEmpty()) {
+            return new PublishedTruth(Map.of(), Map.of(), Map.of(), Map.of());
+        }
+
+        List<TimelineBlock> scopedPublishedBlocks = timelineBlockRepository
+            .findAllByRosterVersionIdAndStatusOrderByStartUtcAsc(latestPublishedRosterId.get(), STATUS_PUBLISHED)
+            .stream()
+            .filter(block -> block.getTaskPlanItemId() != null)
+            .toList();
+        Set<Long> scopedPublishedTaskIds = scopedPublishedBlocks.stream()
+            .map(TimelineBlock::getTaskPlanItemId)
+            .collect(Collectors.toSet());
+        Map<Long, TaskPlanItem> tasksById = taskPlanItemRepository.findAllById(scopedPublishedTaskIds).stream()
             .filter(task -> STATUS_PUBLISHED.equals(task.getStatus()))
             .collect(Collectors.toMap(TaskPlanItem::getId, Function.identity()));
         if (tasksById.isEmpty()) {
@@ -149,10 +167,8 @@ public class PublishResultService {
         Set<Long> publishedTaskIds = tasksById.keySet();
         Map<Long, CrewMember> crewById = crewMemberRepository.findAll().stream()
             .collect(Collectors.toMap(CrewMember::getId, Function.identity()));
-        List<TimelineBlock> publishedBlocks = timelineBlockRepository.findAll().stream()
-            .filter(block -> block.getTaskPlanItemId() != null)
+        List<TimelineBlock> publishedBlocks = scopedPublishedBlocks.stream()
             .filter(block -> publishedTaskIds.contains(block.getTaskPlanItemId()))
-            .filter(block -> STATUS_PUBLISHED.equals(block.getStatus()))
             .toList();
 
         Map<Long, List<TimelineBlock>> blocksByTaskId = publishedBlocks.stream()
@@ -161,6 +177,30 @@ public class PublishResultService {
             .filter(block -> block.getCrewMemberId() != null)
             .collect(Collectors.groupingBy(TimelineBlock::getCrewMemberId));
         return new PublishedTruth(tasksById, crewById, blocksByTaskId, blocksByCrewId);
+    }
+
+    private Optional<Long> latestPublishedRosterVersionId() {
+        List<Long> rosterVersionIds = jdbcTemplate.query(
+            """
+            SELECT rv.id AS roster_version_id
+            FROM domain_event de
+            JOIN roster_version rv ON rv.id = CAST(de.aggregate_id AS UNSIGNED)
+            WHERE de.event_type = 'RosterPublished'
+              AND de.aggregate_type = 'RosterVersion'
+              AND EXISTS (
+                  SELECT 1
+                  FROM timeline_block tb
+                  JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id
+                  WHERE tb.roster_version_id = rv.id
+                    AND tb.status = 'PUBLISHED'
+                    AND tpi.status = 'PUBLISHED'
+              )
+            ORDER BY de.id DESC
+            LIMIT 1
+            """,
+            (rs, rowNum) -> rs.getLong("roster_version_id")
+        );
+        return rosterVersionIds.stream().findFirst();
     }
 
     private PublishedFlightAssignment toFlightAssignment(TimelineBlock block, CrewMember crew) {

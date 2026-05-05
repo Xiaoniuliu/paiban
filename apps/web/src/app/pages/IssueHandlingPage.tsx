@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Timestamp } from '../components/time';
 import type {
   AssignmentTaskDetail,
+  Language,
   SaveAssignmentDraftRequest,
   ValidationIssue,
   ValidationIssueList,
@@ -15,9 +16,9 @@ import type {
 } from '../types';
 import type { PageProps } from './pageTypes';
 
-export function IssueHandlingPage({ activeView, api, t }: PageProps) {
+export function IssueHandlingPage({ activeView, api, language, t }: PageProps) {
   const [issueList, setIssueList] = useState<ValidationIssueList | null>(null);
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [issueSelection, setIssueSelection] = useState<IssueSelection>({ issueId: null, staleUrlLookup: false });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -33,7 +34,7 @@ export function IssueHandlingPage({ activeView, api, t }: PageProps) {
     try {
       const nextIssueList = await api.validationIssues();
       setIssueList(nextIssueList);
-      setSelectedIssueId((current) => keepSelectedIssue(current, nextIssueList.issues));
+      setIssueSelection((current) => resolveIssueSelection(current.issueId, nextIssueList));
     } catch {
       setError(t('validationPublishLoadError'));
     } finally {
@@ -52,8 +53,9 @@ export function IssueHandlingPage({ activeView, api, t }: PageProps) {
   const assignment = useAssignmentFlow(api, t, () => loadIssues('refresh'));
   const selectedIssue = useMemo(() => {
     if (!issueList || issueList.issues.length === 0) return null;
-    return issueList.issues.find((issue) => issue.id === selectedIssueId) ?? issueList.issues[0];
-  }, [issueList, selectedIssueId]);
+    if (!issueSelection.issueId) return null;
+    return issueList.issues.find((issue) => issue.id === issueSelection.issueId) ?? null;
+  }, [issueList, issueSelection.issueId]);
 
   const runValidation = async () => {
     setValidating(true);
@@ -62,7 +64,7 @@ export function IssueHandlingPage({ activeView, api, t }: PageProps) {
       const summary = await api.runValidationPublishCheck();
       const nextIssueList = issueListFromSummary(summary);
       setIssueList(nextIssueList);
-      setSelectedIssueId((current) => keepSelectedIssue(current, nextIssueList.issues));
+      setIssueSelection((current) => resolveIssueSelection(current.issueId, nextIssueList));
     } catch {
       setError(t('validationPublishValidateError'));
     } finally {
@@ -153,14 +155,14 @@ export function IssueHandlingPage({ activeView, api, t }: PageProps) {
                         <tr
                           key={issue.id}
                           className={`cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-muted/40 ${selectedIssue?.id === issue.id ? 'bg-muted/50' : ''}`}
-                          onClick={() => setSelectedIssueId(issue.id)}
+                          onClick={() => setIssueSelection({ issueId: issue.id, staleUrlLookup: false })}
                         >
                           <td className="whitespace-nowrap px-3 py-3"><ValidationIssueSeverityBadge severity={issue.severity} t={t} /></td>
                           <td className="whitespace-nowrap px-3 py-3 font-medium">{issue.taskCode || '-'}</td>
                           <td className="whitespace-nowrap px-3 py-3">{issue.route || '-'}</td>
                           <td className="px-3 py-3">
                             <div className="font-medium">{issue.ruleId}</div>
-                            <div className="text-xs text-muted-foreground">{validationIssueRuleTitle(issue, t)}</div>
+                            <div className="text-xs text-muted-foreground">{validationIssueRuleTitle(issue, t, language)}</div>
                           </td>
                           <td className="whitespace-nowrap px-3 py-3">{validationIssueStatusLabel(issue.status, t)}</td>
                           <td className="whitespace-nowrap px-3 py-3">
@@ -177,7 +179,9 @@ export function IssueHandlingPage({ activeView, api, t }: PageProps) {
 
           <ValidationIssueDetail
             issue={selectedIssue}
+            staleUrlLookup={issueSelection.staleUrlLookup}
             t={t}
+            language={language}
             onOpenAssignment={assignment.openAssignmentTask}
           />
         </div>
@@ -221,7 +225,8 @@ function ValidationIssueAction({
   onOpenAssignment: (taskId: number) => void;
   t: (key: string) => string;
 }) {
-  if (issue.actionType === 'ASSIGNMENT_DRAWER' || issue.actionType === 'STATUS_REPAIR') {
+  const action = validationIssueActionDestination(issue);
+  if (action.kind === 'assignment') {
     return (
       <Button
         type="button"
@@ -229,7 +234,7 @@ function ValidationIssueAction({
         variant="outline"
         onClick={(event) => {
           event.stopPropagation();
-          onOpenAssignment(issue.taskId);
+          onOpenAssignment(action.taskId);
         }}
       >
         {t('validationOpenAssignment')}
@@ -239,28 +244,32 @@ function ValidationIssueAction({
   }
   return (
     <Button asChild size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>
-      <a href="/exceptions-cdr/exception-requests">{t('validationOpenException')}</a>
+      <a href={action.href}>{t(action.labelKey)}</a>
     </Button>
   );
 }
 
 function ValidationIssueDetail({
   issue,
+  staleUrlLookup,
   onOpenAssignment,
+  language,
   t,
 }: {
   issue: ValidationIssue | null;
+  staleUrlLookup: boolean;
   onOpenAssignment: (taskId: number) => void;
+  language: Language;
   t: (key: string) => string;
 }) {
   return (
     <Card className="rounded-lg" data-testid="issue-handling-detail">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">{t('validationIssueDetail')}</CardTitle>
-        <CardDescription>{issue ? validationIssueRuleTitle(issue, t) : t('validationIssueDetailEmpty')}</CardDescription>
+        <CardDescription>{issue ? validationIssueRuleTitle(issue, t, language) : staleUrlLookup ? validationIssueStaleMessage(t) : t('validationIssueDetailEmpty')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
-        {!issue && <EmptyState title={t('validationIssueDetail')} description={t('validationIssueDetailEmpty')} />}
+        {!issue && <EmptyState title={t('validationIssueDetail')} description={staleUrlLookup ? validationIssueStaleMessage(t) : t('validationIssueDetailEmpty')} />}
         {issue && (
           <>
             <div className="space-y-2">
@@ -317,10 +326,14 @@ function validationIssueStatusLabel(status: string, t: (key: string) => string) 
   return label === key ? status : label;
 }
 
-function validationIssueRuleTitle(issue: ValidationIssue, t: (key: string) => string) {
+function validationIssueRuleTitle(issue: ValidationIssue, t: (key: string) => string, language: Language) {
   const key = `validationRuleTitle${issue.ruleId}`;
   const label = t(key);
-  return label === key ? issue.ruleTitle : label;
+  if (label !== key) return label;
+  if (language === 'zh-CN') {
+    return issue.ruleTitleZh || issue.ruleTitle || issue.ruleTitleEn || issue.ruleId;
+  }
+  return issue.ruleTitleEn || issue.ruleTitle || issue.ruleTitleZh || issue.ruleId;
 }
 
 function validationIssueMessage(issue: ValidationIssue, t: (key: string) => string) {
@@ -329,32 +342,110 @@ function validationIssueMessage(issue: ValidationIssue, t: (key: string) => stri
   return label === key ? issue.message : label;
 }
 
-function keepSelectedIssue(current: string | null, issues: ValidationIssue[]) {
-  const urlIssue = issueFromUrlParams(issues);
-  if (urlIssue) return urlIssue.id;
-  if (current && issues.some((issue) => issue.id === current)) return current;
-  return issues[0]?.id ?? null;
+type IssueSelection = {
+  issueId: string | null;
+  staleUrlLookup: boolean;
+};
+
+function resolveIssueSelection(current: string | null, issueList: ValidationIssueList): IssueSelection {
+  const issues = issueList.issues;
+  const urlIssue = issueFromUrlParams(issueList);
+  if (urlIssue.hasLocator) {
+    return { issueId: urlIssue.issue?.id ?? null, staleUrlLookup: !urlIssue.issue };
+  }
+  if (current && issues.some((issue) => issue.id === current)) {
+    return { issueId: current, staleUrlLookup: false };
+  }
+  return { issueId: issues[0]?.id ?? null, staleUrlLookup: false };
 }
 
-function issueFromUrlParams(issues: ValidationIssue[]) {
+function issueFromUrlParams(issueList: ValidationIssueList) {
+  const issues = issueList.issues;
   const params = new URLSearchParams(window.location.search);
   const hitId = params.get('hitId');
+  const rosterVersionId = params.get('rosterVersionId');
+  const taskId = params.get('taskId');
+  const ruleId = params.get('ruleId');
+  const targetType = params.get('targetType');
+  const targetId = params.get('targetId');
+  const timelineBlockId = params.get('timelineBlockId');
+  const crewId = params.get('crewId');
+  const hasLocator = Boolean(hitId || taskId || ruleId || targetType || targetId || timelineBlockId || crewId);
+  if (!hasLocator) return { hasLocator: false, issue: null };
+  if (rosterVersionId && issueList.rosterVersionId != null && String(issueList.rosterVersionId) !== rosterVersionId) {
+    return { hasLocator: true, issue: null };
+  }
+
   if (hitId) {
     const matchedByHit = issues.find((issue) => String(issue.hitId) === hitId);
-    if (matchedByHit) return matchedByHit;
+    return { hasLocator: true, issue: matchedByHit ?? null };
   }
-  const crewId = params.get('crewId');
-  const ruleId = params.get('ruleId');
-  if (!crewId && !ruleId) return null;
-  return issues.find((issue) => (
-    (!crewId || String(issue.crewId) === crewId)
-    && (!ruleId || issue.ruleId === ruleId)
-  )) ?? null;
+  if (targetType && targetId) {
+    const matchedByTarget = issues.find((issue) => (
+      String(issue.targetId) === targetId
+      && issue.targetType === targetType
+      && (!ruleId || issue.ruleId === ruleId)
+    ));
+    if (matchedByTarget) return { hasLocator: true, issue: matchedByTarget };
+  }
+  if (timelineBlockId && ruleId) {
+    const matchedByTimeline = issues.find((issue) => String(issue.timelineBlockId) === timelineBlockId && issue.ruleId === ruleId);
+    if (matchedByTimeline) return { hasLocator: true, issue: matchedByTimeline };
+  }
+  if (taskId && ruleId) {
+    const matchedByTask = issues.find((issue) => String(issue.taskId) === taskId && issue.ruleId === ruleId);
+    if (matchedByTask) return { hasLocator: true, issue: matchedByTask };
+  }
+  if (crewId && ruleId) {
+    const matchedByCrew = issues.find((issue) => String(issue.crewId) === crewId && issue.ruleId === ruleId);
+    if (matchedByCrew) return { hasLocator: true, issue: matchedByCrew };
+  }
+  return { hasLocator: true, issue: null };
+}
+
+function validationIssueStaleMessage(t: (key: string) => string) {
+  return t('validationIssueStaleHit');
+}
+
+type IssueActionDestination =
+  | { kind: 'assignment'; taskId: number }
+  | { kind: 'link'; href: string; labelKey: string };
+
+function validationIssueActionDestination(issue: ValidationIssue): IssueActionDestination {
+  const actionCode = (issue.recommendedAction || issue.actionType || '').toUpperCase();
+  if ((actionCode === 'ASSIGNMENT_DRAWER' || actionCode === 'STATUS_REPAIR') && issue.taskId != null) {
+    return { kind: 'assignment', taskId: issue.taskId };
+  }
+  if (['EXTEND_DDO', 'SHORTEN_STANDBY'].includes(actionCode)
+    || (actionCode === 'FIX_TIMELINE_BLOCK' && issue.taskId == null)) {
+    return { kind: 'link', href: '/crew-status/status-timeline', labelKey: 'crew-status-timeline' };
+  }
+  if (['FIX_TASK_TIME', 'FIX_FLIGHT_PLAN'].includes(actionCode)) {
+    return { kind: 'link', href: '/flight-operations/flight-plan', labelKey: 'task-import-batches' };
+  }
+  if ([
+    'ASSIGNMENT_DRAWER',
+    'STATUS_REPAIR',
+    'FIX_ASSIGNMENT',
+    'FIX_DRAFT_ROSTER',
+    'ADJUST_ASSIGNMENT',
+    'ADJUST_ROSTER',
+    'ASSIGN_CREW',
+    'ADD_RELIEF_CREW',
+    'FIX_TIMELINE_BLOCK',
+  ].includes(actionCode)) {
+    return { kind: 'link', href: '/rostering-workbench/draft-rostering', labelKey: 'draft-rostering' };
+  }
+  if (['ADJUST_CREW_HOURS', 'FIX_CREW_HOURS'].includes(actionCode)) {
+    return { kind: 'link', href: '/reports/crew-hours', labelKey: 'reports-crew-hours' };
+  }
+  return { kind: 'link', href: '/exceptions-cdr/exception-requests', labelKey: 'validationOpenException' };
 }
 
 function issueListFromSummary(summary: ValidationPublishSummary): ValidationIssueList {
   return {
     rosterVersionNo: summary.rosterVersionNo,
+    rosterVersionId: summary.rosterVersionId,
     rosterVersionStatus: summary.rosterVersionStatus,
     blockedCount: summary.blockedCount,
     warningCount: summary.warningCount,

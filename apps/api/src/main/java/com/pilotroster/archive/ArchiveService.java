@@ -26,10 +26,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -49,6 +51,7 @@ public class ArchiveService {
     private final CrewMemberRepository crewMemberRepository;
     private final AuditLogService auditLogService;
     private final DomainEventService domainEventService;
+    private final JdbcTemplate jdbcTemplate;
 
     public ArchiveService(
         FlightArchiveCaseRepository archiveCaseRepository,
@@ -57,7 +60,8 @@ public class ArchiveService {
         TaskPlanItemRepository taskPlanItemRepository,
         CrewMemberRepository crewMemberRepository,
         AuditLogService auditLogService,
-        DomainEventService domainEventService
+        DomainEventService domainEventService,
+        JdbcTemplate jdbcTemplate
     ) {
         this.archiveCaseRepository = archiveCaseRepository;
         this.crewArchiveFormRepository = crewArchiveFormRepository;
@@ -66,6 +70,7 @@ public class ArchiveService {
         this.crewMemberRepository = crewMemberRepository;
         this.auditLogService = auditLogService;
         this.domainEventService = domainEventService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Transactional
@@ -73,10 +78,11 @@ public class ArchiveService {
         Map<Long, TaskPlanItem> taskById = taskPlanItemRepository.findAll()
             .stream()
             .collect(Collectors.toMap(TaskPlanItem::getId, Function.identity()));
-        Map<Long, List<TimelineBlock>> blocksByTaskId = timelineBlocksByTaskId();
+        Map<Long, List<TimelineBlock>> blocksByTaskId = latestPublishedRosterVersionId()
+            .map(rosterVersionId -> timelineBlocksByTaskId(rosterVersionId, taskById))
+            .orElseGet(Map::of);
         Instant now = Instant.now();
         syncEligibleArchiveCases(taskById, blocksByTaskId, now);
-        archiveCaseRepository.findAll().forEach(this::refreshArchiveCase);
         return new ArchiveSyncResponse((int) archiveCaseRepository.count());
     }
 
@@ -85,11 +91,16 @@ public class ArchiveService {
         Map<Long, TaskPlanItem> taskById = taskPlanItemRepository.findAll()
             .stream()
             .collect(Collectors.toMap(TaskPlanItem::getId, Function.identity()));
-        Map<Long, List<TimelineBlock>> blocksByTaskId = timelineBlocksByTaskId();
         Instant now = Instant.now();
+        Optional<Long> latestPublishedRosterVersionId = latestPublishedRosterVersionId();
         return archiveCaseRepository.findAll()
             .stream()
-            .filter(archiveCase -> isArchiveCaseVisible(archiveCase, taskById.get(archiveCase.getFlightId()), blocksByTaskId, now))
+            .filter(archiveCase -> isArchiveCaseVisible(
+                archiveCase,
+                taskById.get(archiveCase.getFlightId()),
+                now,
+                latestPublishedRosterVersionId
+            ))
             .sorted(Comparator.comparing((FlightArchiveCase archiveCase) -> {
                 TaskPlanItem task = taskById.get(archiveCase.getFlightId());
                 return task == null ? Instant.EPOCH : task.getScheduledStartUtc();
@@ -123,18 +134,25 @@ public class ArchiveService {
         Map<Long, TaskPlanItem> taskById = taskPlanItemRepository.findAll()
             .stream()
             .collect(Collectors.toMap(TaskPlanItem::getId, Function.identity()));
-        Map<Long, List<TimelineBlock>> blocksByTaskId = timelineBlocksByTaskId();
         Instant now = Instant.now();
+        Optional<Long> latestPublishedRosterVersionId = latestPublishedRosterVersionId();
         Map<Long, FlightArchiveCase> caseByFlightId = archiveCaseRepository.findAll()
             .stream()
-            .filter(archiveCase -> isArchiveCaseVisible(archiveCase, taskById.get(archiveCase.getFlightId()), blocksByTaskId, now))
+            .filter(archiveCase -> isArchiveCaseVisible(
+                archiveCase,
+                taskById.get(archiveCase.getFlightId()),
+                now,
+                latestPublishedRosterVersionId
+            ))
             .collect(Collectors.toMap(FlightArchiveCase::getFlightId, Function.identity()));
 
-        List<TimelineBlock> timelineBlocks = timelineBlockRepository
-            .findAllByEndUtcAfterAndStartUtcBeforeOrderByStartUtcAsc(windowStartUtc, windowEndUtc)
-            .stream()
-            .filter(block -> "CREW".equals(viewMode) || "FLIGHT".equals(block.getBlockType()))
-            .toList();
+        List<TimelineBlock> timelineBlocks = new ArrayList<>(latestRosterVersionId()
+            .map(rosterVersionId -> timelineBlockRepository.findAllByRosterVersionIdOrderByStartUtcAsc(rosterVersionId)
+                .stream()
+                .filter(block -> block.getEndUtc().isAfter(windowStartUtc) && block.getStartUtc().isBefore(windowEndUtc))
+                .filter(block -> "CREW".equals(viewMode) || "FLIGHT".equals(block.getBlockType()))
+                .toList())
+            .orElseGet(List::of));
         Set<Long> taskIdsWithBlocks = new HashSet<>();
         List<GanttTimelineBlockResponse> responses = new ArrayList<>();
 
@@ -147,10 +165,13 @@ public class ArchiveService {
             }
             CrewMember crew = crewById.get(block.getCrewMemberId());
             TaskPlanItem task = taskById.get(block.getTaskPlanItemId());
-            FlightArchiveCase archiveCase = caseByFlightId.get(block.getTaskPlanItemId());
+            FlightArchiveCase archiveCase = archiveCaseForTimelineBlock(block, caseByFlightId.get(block.getTaskPlanItemId()));
             CrewArchiveSummary summary = archiveCase == null
                 ? new CrewArchiveSummary(0, 0, 0, 0)
-                : summarize(refreshArchiveCase(archiveCase));
+                : summarize(visibleArchiveForms(
+                    archiveCase,
+                    crewArchiveFormRepository.findAllByArchiveCaseIdOrderByIdAsc(archiveCase.getId())
+                ));
             responses.add(toTimelineBlock(user, block, crew, task, archiveCase, summary));
         }
 
@@ -165,6 +186,19 @@ public class ArchiveService {
             .sorted(Comparator.comparing(GanttTimelineBlockResponse::startUtc)
                 .thenComparing(GanttTimelineBlockResponse::displayLabel))
             .toList();
+    }
+
+    private FlightArchiveCase archiveCaseForTimelineBlock(TimelineBlock block, FlightArchiveCase archiveCase) {
+        if (archiveCase == null || block.getTaskPlanItemId() == null) {
+            return null;
+        }
+        if (!STATUS_PUBLISHED.equals(block.getStatus())) {
+            return null;
+        }
+        if (!Objects.equals(block.getRosterVersionId(), archiveCase.getRosterVersionId())) {
+            return null;
+        }
+        return archiveCase;
     }
 
     private void validateTimelineWindow(Instant windowStartUtc, Instant windowEndUtc, String viewMode) {
@@ -190,15 +224,24 @@ public class ArchiveService {
                 continue;
             }
             Instant deadline = effectiveEndUtc(task).plusSeconds(ARCHIVE_DEADLINE_HOURS * 60 * 60);
+            Long rosterVersionId = blocks.stream()
+                .map(TimelineBlock::getRosterVersionId)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Roster version missing"));
             FlightArchiveCase archiveCase = caseByFlightId.get(task.getId());
             if (archiveCase == null) {
-                Long rosterVersionId = blocks.stream()
-                    .map(TimelineBlock::getRosterVersionId)
-                    .filter(Objects::nonNull)
-                    .findFirst()
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Roster version missing"));
                 archiveCase = archiveCaseRepository.save(new FlightArchiveCase(task.getId(), rosterVersionId, deadline));
                 caseByFlightId.put(task.getId(), archiveCase);
+            } else if (!rosterVersionId.equals(archiveCase.getRosterVersionId())) {
+                if (ArchiveStatus.ARCHIVED.equals(archiveCase.getArchiveStatus())) {
+                    continue;
+                }
+                if (hasStartedArchiveForms(archiveCase)) {
+                    migrateArchiveCaseForNewPublishedScope(archiveCase, rosterVersionId, deadline);
+                } else {
+                    resetArchiveCaseForNewPublishedScope(archiveCase, rosterVersionId, deadline);
+                }
             } else if (!deadline.equals(archiveCase.getArchiveDeadlineAtUtc())) {
                 archiveCase.setArchiveDeadlineAtUtc(deadline);
                 archiveCase.incrementRevision();
@@ -208,31 +251,84 @@ public class ArchiveService {
         }
     }
 
-    private Map<Long, List<TimelineBlock>> timelineBlocksByTaskId() {
-        return timelineBlockRepository.findAll()
+    private void resetArchiveCaseForNewPublishedScope(
+        FlightArchiveCase archiveCase,
+        Long rosterVersionId,
+        Instant deadline
+    ) {
+        jdbcTemplate.update("DELETE FROM crew_archive_form WHERE archive_case_id = ?", archiveCase.getId());
+        archiveCase.setRosterVersionId(rosterVersionId);
+        archiveCase.setArchiveDeadlineAtUtc(deadline);
+        archiveCase.setArchiveStatus(ArchiveStatus.UNARCHIVED);
+        archiveCase.setArchivedAtUtc(null);
+        archiveCase.setCompletedCount(0);
+        archiveCase.setTotalCount(0);
+        archiveCase.incrementRevision();
+        archiveCaseRepository.save(archiveCase);
+    }
+
+    private void migrateArchiveCaseForNewPublishedScope(
+        FlightArchiveCase archiveCase,
+        Long rosterVersionId,
+        Instant deadline
+    ) {
+        archiveCase.setRosterVersionId(rosterVersionId);
+        archiveCase.setArchiveDeadlineAtUtc(deadline);
+        archiveCase.setArchivedAtUtc(null);
+        archiveCase.incrementRevision();
+        archiveCaseRepository.save(archiveCase);
+    }
+
+    private boolean hasStartedArchiveForms(FlightArchiveCase archiveCase) {
+        return crewArchiveFormRepository.findAllByArchiveCaseIdOrderByIdAsc(archiveCase.getId())
+            .stream()
+            .anyMatch(form -> !CrewArchiveFormStatus.NOT_STARTED.equals(form.getFormStatus())
+                || form.getEnteredAtUtc() != null
+                || form.getConfirmedAtUtc() != null);
+    }
+
+    private Map<Long, List<TimelineBlock>> timelineBlocksByTaskId(Long rosterVersionId, Map<Long, TaskPlanItem> taskById) {
+        return timelineBlockRepository.findAllByRosterVersionIdAndStatusOrderByStartUtcAsc(rosterVersionId, STATUS_PUBLISHED)
             .stream()
             .filter(block -> block.getTaskPlanItemId() != null)
+            .filter(block -> publishedTask(taskById.get(block.getTaskPlanItemId())))
             .collect(Collectors.groupingBy(TimelineBlock::getTaskPlanItemId));
     }
 
     private boolean isArchiveCaseVisible(
         FlightArchiveCase archiveCase,
         TaskPlanItem task,
-        Map<Long, List<TimelineBlock>> blocksByTaskId,
-        Instant now
+        Instant now,
+        Optional<Long> latestPublishedRosterVersionId
     ) {
         if (ArchiveStatus.ARCHIVED.equals(archiveCase.getArchiveStatus())) {
             return true;
         }
-        return isArchiveEligible(task, blocksByTaskId.getOrDefault(archiveCase.getFlightId(), List.of()), now);
+        if (!isArchiveCaseInLatestPublishedScope(archiveCase, latestPublishedRosterVersionId)) {
+            return false;
+        }
+        return isArchiveEligible(task, archiveCaseTimelineBlocks(archiveCase), now);
+    }
+
+    private boolean isArchiveCaseInLatestPublishedScope(
+        FlightArchiveCase archiveCase,
+        Optional<Long> latestPublishedRosterVersionId
+    ) {
+        return latestPublishedRosterVersionId
+            .map(rosterVersionId -> Objects.equals(rosterVersionId, archiveCase.getRosterVersionId()))
+            .orElse(false);
     }
 
     private boolean isArchiveEligible(TaskPlanItem task, List<TimelineBlock> blocks, Instant now) {
         return task != null
             && TASK_TYPE_FLIGHT.equals(task.getTaskType())
-            && (STATUS_ASSIGNED.equals(task.getStatus()) || STATUS_PUBLISHED.equals(task.getStatus()))
+            && publishedTask(task)
             && !effectiveEndUtc(task).isAfter(now)
             && blocks.stream().anyMatch(block -> block.getCrewMemberId() != null);
+    }
+
+    private boolean publishedTask(TaskPlanItem task) {
+        return task != null && STATUS_PUBLISHED.equals(task.getStatus());
     }
 
     private boolean isVisibleTimelineBlock(TimelineBlock block, TaskPlanItem task) {
@@ -250,7 +346,11 @@ public class ArchiveService {
     public ArchiveCaseDetailResponse archiveCaseDetail(Long archiveCaseId, AuthenticatedUser user) {
         FlightArchiveCase archiveCase = archiveCaseRepository.findById(archiveCaseId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Archive case not found"));
-        List<CrewArchiveForm> forms = crewArchiveFormRepository.findAllByArchiveCaseIdOrderByIdAsc(archiveCase.getId());
+        requireVisibleArchiveCase(archiveCase, HttpStatus.NOT_FOUND);
+        List<CrewArchiveForm> forms = visibleArchiveForms(
+            archiveCase,
+            crewArchiveFormRepository.findAllByArchiveCaseIdOrderByIdAsc(archiveCase.getId())
+        );
         return toArchiveCaseDetail(archiveCase, forms, user);
     }
 
@@ -262,13 +362,17 @@ public class ArchiveService {
     ) {
         CrewArchiveForm form = crewArchiveFormRepository.findById(formId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Archive form not found"));
-        if (!form.getRevision().equals(request.expectedRevision())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Archive form revision conflict");
-        }
         FlightArchiveCase archiveCase = archiveCaseRepository.findById(form.getArchiveCaseId())
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Archive case not found"));
+        requireVisibleArchiveCase(archiveCase, HttpStatus.FORBIDDEN);
+        if (!isArchiveFormInPublishedRosterScope(archiveCase, form)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Archive form is not available");
+        }
         if (!canEditArchive(user, archiveCase)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Archive form is read-only");
+        }
+        if (!form.getRevision().equals(request.expectedRevision())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Archive form revision conflict");
         }
         validateActuals(request);
 
@@ -333,8 +437,18 @@ public class ArchiveService {
         Map<Long, TaskPlanItem> taskById = taskPlanItemRepository.findAll()
             .stream()
             .collect(Collectors.toMap(TaskPlanItem::getId, Function.identity()));
+        Instant now = Instant.now();
+        Optional<Long> latestPublishedRosterVersionId = latestPublishedRosterVersionId();
         return crewArchiveFormRepository.findAllByCrewIdOrderByIdAsc(crewId)
             .stream()
+            .filter(form -> {
+                FlightArchiveCase archiveCase = casesById.get(form.getArchiveCaseId());
+                TaskPlanItem task = taskById.get(form.getFlightId());
+                return archiveCase != null
+                    && task != null
+                    && isArchiveCaseVisible(archiveCase, task, now, latestPublishedRosterVersionId)
+                    && isArchiveFormInPublishedRosterScope(archiveCase, form);
+            })
             .map(form -> {
                 FlightArchiveCase archiveCase = casesById.get(form.getArchiveCaseId());
                 TaskPlanItem task = taskById.get(form.getFlightId());
@@ -378,6 +492,20 @@ public class ArchiveService {
         }
     }
 
+    private void requireVisibleArchiveCase(FlightArchiveCase archiveCase, HttpStatus hiddenStatus) {
+        Map<Long, TaskPlanItem> taskById = taskPlanItemRepository.findAll()
+            .stream()
+            .collect(Collectors.toMap(TaskPlanItem::getId, Function.identity()));
+        if (!isArchiveCaseVisible(
+            archiveCase,
+            taskById.get(archiveCase.getFlightId()),
+            Instant.now(),
+            latestPublishedRosterVersionId()
+        )) {
+            throw new ResponseStatusException(hiddenStatus, "Archive case is not available");
+        }
+    }
+
     private List<CrewArchiveForm> refreshArchiveCase(FlightArchiveCase archiveCase) {
         List<CrewArchiveForm> forms = syncArchiveForms(archiveCase);
         long completedCount = forms.stream()
@@ -418,16 +546,27 @@ public class ArchiveService {
     }
 
     private List<CrewArchiveForm> syncArchiveForms(FlightArchiveCase archiveCase) {
-        List<CrewArchiveForm> forms = crewArchiveFormRepository.findAllByArchiveCaseIdOrderByIdAsc(archiveCase.getId());
-        Set<Long> existingCrewIds = forms.stream()
+        List<TimelineBlock> blocks = archiveCaseTimelineBlocks(archiveCase);
+        Set<Long> eligibleCrewIds = blocks.stream()
+            .map(TimelineBlock::getCrewMemberId)
+            .filter(crewId -> crewId != null)
+            .collect(Collectors.toSet());
+        List<CrewArchiveForm> allForms = crewArchiveFormRepository.findAllByArchiveCaseIdOrderByIdAsc(archiveCase.getId());
+        allForms.stream()
+            .filter(form -> Objects.equals(form.getArchiveCaseId(), archiveCase.getId()))
+            .filter(form -> !Objects.equals(form.getFlightId(), archiveCase.getFlightId()))
+            .filter(form -> !isArchiveFormStarted(form))
+            .forEach(form -> jdbcTemplate.update("DELETE FROM crew_archive_form WHERE id = ?", form.getId()));
+        allForms = crewArchiveFormRepository.findAllByArchiveCaseIdOrderByIdAsc(archiveCase.getId());
+        List<CrewArchiveForm> forms = new ArrayList<>(visibleArchiveForms(archiveCase, allForms));
+        Set<Long> existingCrewIds = allForms.stream()
+            .filter(form -> Objects.equals(form.getArchiveCaseId(), archiveCase.getId()))
             .map(CrewArchiveForm::getCrewId)
             .collect(Collectors.toSet());
         Set<Long> seenCrewIds = new HashSet<>(existingCrewIds);
-        List<TimelineBlock> blocks = timelineBlockRepository
-            .findAllByTaskPlanItemIdAndRosterVersionIdOrderByIdAsc(archiveCase.getFlightId(), archiveCase.getRosterVersionId());
         for (TimelineBlock block : blocks) {
             Long crewId = block.getCrewMemberId();
-            if (crewId == null || !seenCrewIds.add(crewId)) {
+            if (crewId == null || !eligibleCrewIds.contains(crewId) || !seenCrewIds.add(crewId)) {
                 continue;
             }
             forms.add(crewArchiveFormRepository.save(new CrewArchiveForm(archiveCase.getId(), archiveCase.getFlightId(), crewId)));
@@ -435,6 +574,98 @@ public class ArchiveService {
         return forms.stream()
             .sorted(Comparator.comparing(CrewArchiveForm::getId))
             .toList();
+    }
+
+    private boolean isArchiveFormStarted(CrewArchiveForm form) {
+        return !CrewArchiveFormStatus.NOT_STARTED.equals(form.getFormStatus())
+            || form.getEnteredAtUtc() != null
+            || form.getConfirmedAtUtc() != null;
+    }
+
+    private List<CrewArchiveForm> visibleArchiveForms(FlightArchiveCase archiveCase, List<CrewArchiveForm> forms) {
+        List<TimelineBlock> blocks = archiveCaseTimelineBlocks(archiveCase);
+        if (ArchiveStatus.ARCHIVED.equals(archiveCase.getArchiveStatus()) && blocks.isEmpty()) {
+            return forms.stream()
+                .filter(form -> isArchiveFormForCase(archiveCase, form))
+                .toList();
+        }
+        Set<Long> eligibleCrewIds = blocks
+            .stream()
+            .map(TimelineBlock::getCrewMemberId)
+            .filter(crewId -> crewId != null)
+            .collect(Collectors.toSet());
+        return forms.stream()
+            .filter(form -> isArchiveFormForCase(archiveCase, form))
+            .filter(form -> eligibleCrewIds.contains(form.getCrewId()))
+            .toList();
+    }
+
+    private boolean isArchiveFormInPublishedRosterScope(FlightArchiveCase archiveCase, CrewArchiveForm form) {
+        if (!isArchiveFormForCase(archiveCase, form)) {
+            return false;
+        }
+        List<TimelineBlock> blocks = archiveCaseTimelineBlocks(archiveCase);
+        if (ArchiveStatus.ARCHIVED.equals(archiveCase.getArchiveStatus()) && blocks.isEmpty()) {
+            return true;
+        }
+        return blocks
+            .stream()
+            .anyMatch(block -> form.getCrewId() != null && form.getCrewId().equals(block.getCrewMemberId()));
+    }
+
+    private boolean isArchiveFormForCase(FlightArchiveCase archiveCase, CrewArchiveForm form) {
+        return Objects.equals(form.getArchiveCaseId(), archiveCase.getId())
+            && Objects.equals(form.getFlightId(), archiveCase.getFlightId());
+    }
+
+    private List<TimelineBlock> archiveCaseTimelineBlocks(FlightArchiveCase archiveCase) {
+        TaskPlanItem task = taskPlanItemRepository.findById(archiveCase.getFlightId()).orElse(null);
+        if (!publishedTask(task)) {
+            return List.of();
+        }
+        return timelineBlockRepository.findAllByTaskPlanItemIdAndRosterVersionIdOrderByIdAsc(
+            archiveCase.getFlightId(),
+            archiveCase.getRosterVersionId()
+        ).stream()
+            .filter(block -> STATUS_PUBLISHED.equals(block.getStatus()))
+            .toList();
+    }
+
+    private Optional<Long> latestPublishedRosterVersionId() {
+        List<Long> rosterVersionIds = jdbcTemplate.query(
+            """
+            SELECT rv.id AS roster_version_id
+            FROM domain_event de
+            JOIN roster_version rv ON rv.id = CAST(de.aggregate_id AS UNSIGNED)
+            WHERE de.event_type = 'RosterPublished'
+              AND de.aggregate_type = 'RosterVersion'
+              AND EXISTS (
+                  SELECT 1
+                  FROM timeline_block tb
+                  JOIN task_plan_item tpi ON tpi.id = tb.task_plan_item_id
+                  WHERE tb.roster_version_id = rv.id
+                    AND tb.status = 'PUBLISHED'
+                    AND tpi.status = 'PUBLISHED'
+              )
+            ORDER BY de.id DESC
+            LIMIT 1
+            """,
+            (rs, rowNum) -> rs.getLong("roster_version_id")
+        );
+        return rosterVersionIds.stream().findFirst();
+    }
+
+    private Optional<Long> latestRosterVersionId() {
+        List<Long> rosterVersionIds = jdbcTemplate.query(
+            """
+            SELECT id
+            FROM roster_version
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (rs, rowNum) -> rs.getLong("id")
+        );
+        return rosterVersionIds.stream().findFirst();
     }
 
     private CrewArchiveSummary summarize(List<CrewArchiveForm> forms) {

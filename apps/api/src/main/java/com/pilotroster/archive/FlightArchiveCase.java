@@ -94,6 +94,10 @@ public class FlightArchiveCase {
         this.archiveStatus = archiveStatus;
     }
 
+    public void setRosterVersionId(Long rosterVersionId) {
+        this.rosterVersionId = rosterVersionId;
+    }
+
     public void setArchiveDeadlineAtUtc(Instant archiveDeadlineAtUtc) {
         this.archiveDeadlineAtUtc = archiveDeadlineAtUtc;
     }

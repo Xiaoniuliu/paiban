@@ -15,6 +15,7 @@ import com.pilotroster.workbench.ValidationPublishDtos.PublishRosterRequest;
 import com.pilotroster.workbench.ValidationPublishDtos.ValidationIssueResponse;
 import com.pilotroster.workbench.ValidationPublishDtos.ValidationPublishSummaryResponse;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -35,6 +36,7 @@ public class ValidationPublishService {
     private static final String STATUS_BLOCKED = "BLOCKED";
     private static final String STATUS_NEEDS_REVIEW = "NEEDS_REVIEW";
     private static final String STATUS_WARNING = "WARNING";
+    private static final String STATUS_CANCELLED = "CANCELLED";
 
     private static final Set<String> PUBLISHABLE_STATUSES = Set.of(
         STATUS_ASSIGNED_DRAFT,
@@ -68,46 +70,51 @@ public class ValidationPublishService {
 
     @Transactional
     public ValidationPublishSummaryResponse summary() {
-        return buildSummary(null, null);
+        return buildSummary(null, null, false);
     }
 
     @Transactional
     public ValidationIssueListResponse issues() {
-        return buildIssueList();
+        return buildIssueList(false);
     }
 
     @Transactional
     public ValidationPublishSummaryResponse validateDraft() {
-        return buildSummary(Instant.now(), null);
+        return buildSummary(Instant.now(), null, true);
     }
 
     @Transactional
     public ValidationPublishSummaryResponse publish(PublishRosterRequest request, AuthenticatedUser user) {
         Instant validatedAtUtc = Instant.now();
-        ValidationPublishSummaryResponse validation = buildSummary(validatedAtUtc, null);
+        ValidationPublishSummaryResponse validation = buildSummary(validatedAtUtc, null, true);
         if (validation.blockedCount() > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Validation blockers must be resolved before publishing");
         }
         if (validation.warningCount() > 0 && (request == null || !request.managerConfirmed())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Manager confirmation is required for warnings");
         }
-        if (validation.publishableTasks() == 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "No publishable roster changes");
-        }
-
         DraftRoster draft = currentDraft();
-        List<TaskPlanItem> tasks = taskPlanItemRepository.findAllByOrderByScheduledStartUtcAsc();
-        List<TaskPlanItem> publishableTasks = tasks.stream()
+        List<TimelineBlock> currentRosterBlocks = timelineBlockRepository.findAllByRosterVersionIdOrderByStartUtcAsc(draft.id());
+        List<TimelineBlock> publishableBlocks = currentRosterBlocks.stream()
+            .filter(block -> !STATUS_CANCELLED.equals(block.getStatus()))
+            .toList();
+        Set<Long> currentRosterTaskIds = publishableBlocks.stream()
+            .map(TimelineBlock::getTaskPlanItemId)
+            .filter(taskId -> taskId != null)
+            .collect(Collectors.toSet());
+        List<TaskPlanItem> publishableTasks = taskPlanItemRepository.findAllById(currentRosterTaskIds).stream()
             .filter(task -> PUBLISHABLE_STATUSES.contains(task.getStatus()))
             .toList();
+        if (publishableTasks.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "No publishable roster changes");
+        }
         publishableTasks.forEach(task -> task.setStatus(STATUS_PUBLISHED));
         taskPlanItemRepository.saveAll(publishableTasks);
 
         Set<Long> publishableTaskIds = publishableTasks.stream()
             .map(TaskPlanItem::getId)
             .collect(Collectors.toSet());
-        List<TimelineBlock> affectedBlocks = timelineBlockRepository.findAllByRosterVersionIdOrderByStartUtcAsc(draft.id())
-            .stream()
+        List<TimelineBlock> affectedBlocks = publishableBlocks.stream()
             .filter(block -> block.getTaskPlanItemId() != null)
             .filter(block -> publishableTaskIds.contains(block.getTaskPlanItemId()))
             .toList();
@@ -126,12 +133,13 @@ public class ValidationPublishService {
                 .collect(Collectors.joining(",")) + "]}"
         );
         domainEventService.record("RosterPublished", "RosterVersion", draft.id().toString(), "{}");
-        return buildSummary(validatedAtUtc, Instant.now());
+        return buildSummary(validatedAtUtc, Instant.now(), true);
     }
 
-    private ValidationIssueListResponse buildIssueList() {
-        IssueListSnapshot snapshot = evaluateIssues();
+    private ValidationIssueListResponse buildIssueList(boolean refreshIssues) {
+        IssueListSnapshot snapshot = issueSnapshot(refreshIssues);
         return new ValidationIssueListResponse(
+            snapshot.rosterVersionId(),
             snapshot.rosterVersionNo(),
             snapshot.rosterVersionStatus(),
             snapshot.blockedCount(),
@@ -140,10 +148,12 @@ public class ValidationPublishService {
         );
     }
 
-    private ValidationPublishSummaryResponse buildSummary(Instant validatedAtUtc, Instant publishedAtUtc) {
-        List<TaskPlanItem> tasks = taskPlanItemRepository.findAllByOrderByScheduledStartUtcAsc();
-        IssueListSnapshot issueSnapshot = evaluateIssues();
+    private ValidationPublishSummaryResponse buildSummary(Instant validatedAtUtc, Instant publishedAtUtc, boolean refreshIssues) {
+        List<TaskPlanItem> tasks = currentRosterTasks();
+        IssueListSnapshot issueSnapshot = issueSnapshot(refreshIssues);
         List<ValidationIssueResponse> issues = issueSnapshot.issues();
+        int blockedCount = issueSnapshot.blockedCount();
+        int warningCount = issueSnapshot.warningCount();
 
         int assignedTasks = countStatus(tasks, STATUS_ASSIGNED) + countStatus(tasks, STATUS_ASSIGNED_DRAFT)
             + countStatus(tasks, STATUS_PUBLISHED) + countStatus(tasks, STATUS_NEEDS_REVIEW)
@@ -156,6 +166,7 @@ public class ValidationPublishService {
             .count();
 
         return new ValidationPublishSummaryResponse(
+            issueSnapshot.rosterVersionId(),
             issueSnapshot.rosterVersionNo(),
             issueSnapshot.rosterVersionStatus(),
             validatedAtUtc,
@@ -165,28 +176,84 @@ public class ValidationPublishService {
             draftAssignedTasks,
             unassignedTasks,
             publishedTasks,
-            issueSnapshot.blockedCount(),
-            issueSnapshot.warningCount(),
+            blockedCount,
+            warningCount,
             publishableTasks,
-            issueSnapshot.blockedCount() == 0 && publishableTasks > 0,
-            issueSnapshot.warningCount() > 0,
+            blockedCount == 0 && publishableTasks > 0,
+            warningCount > 0,
             inactiveRuleIds(),
             issues
         );
     }
 
-    private IssueListSnapshot evaluateIssues() {
-        RuleEvaluationResult evaluation = ruleEvaluationService.evaluateLatestRoster();
-        List<ValidationIssueResponse> issues = evaluation.issues().stream()
+    private IssueListSnapshot issueSnapshot(boolean refreshIssues) {
+        RuleEvaluationResult evaluation = refreshIssues
+            ? ruleEvaluationService.evaluateLatestRoster()
+            : ruleEvaluationService.readLatestRosterSnapshot();
+        List<ValidationIssueResponse> issues = new ArrayList<>(evaluation.issues().stream()
             .map(this::issueFromRuleHit)
-            .toList();
+            .toList());
+        issues.addAll(taskStatusIssues(currentRosterTasks()));
         return new IssueListSnapshot(
+            evaluation.rosterVersionId(),
             evaluation.rosterVersionNo(),
             evaluation.rosterVersionStatus(),
             countSeverity(issues, "BLOCK"),
             countSeverity(issues, "WARNING"),
             issues
         );
+    }
+
+    private List<ValidationIssueResponse> taskStatusIssues(List<TaskPlanItem> tasks) {
+        return tasks.stream()
+            .filter(task -> !STATUS_CANCELLED.equals(task.getStatus()))
+            .filter(task -> STATUS_VALIDATION_FAILED.equals(task.getStatus())
+                || STATUS_BLOCKED.equals(task.getStatus())
+                || STATUS_NEEDS_REVIEW.equals(task.getStatus())
+                || STATUS_WARNING.equals(task.getStatus()))
+            .map(task -> {
+                boolean blocked = STATUS_VALIDATION_FAILED.equals(task.getStatus()) || STATUS_BLOCKED.equals(task.getStatus());
+                return new ValidationIssueResponse(
+                    "TASK_STATUS_" + task.getId(),
+                    null,
+                    task.getId(),
+                    null,
+                    null,
+                    "TASK",
+                    task.getId(),
+                    task.getTaskCode(),
+                    route(task),
+                    task.getScheduledStartUtc(),
+                    task.getScheduledEndUtc(),
+                    blocked ? "BLOCK" : "WARNING",
+                    blocked ? "TASK_STATUS_BLOCKED" : "MANAGER_REVIEW_REQUIRED",
+                    blocked ? "Task status blocked" : "Manager review required",
+                    blocked ? "任务状态阻断" : "需要经理复核",
+                    blocked ? "Task status blocked" : "Manager review required",
+                    blocked
+                        ? "Task status blocks publishing; repair the task or resolve the underlying blocker."
+                        : "Task status requires manager confirmation before publishing.",
+                    blocked ? "STATUS_REPAIR" : "REVIEW",
+                    task.getStatus(),
+                    task.getScheduledStartUtc(),
+                    task.getScheduledEndUtc(),
+                    null
+                );
+            })
+            .toList();
+    }
+
+    private List<TaskPlanItem> currentRosterTasks() {
+        Set<Long> taskIds = currentRosterTaskIds(currentDraft().id());
+        return taskPlanItemRepository.findAllById(taskIds);
+    }
+
+    private Set<Long> currentRosterTaskIds(Long rosterVersionId) {
+        return timelineBlockRepository.findAllByRosterVersionIdOrderByStartUtcAsc(rosterVersionId).stream()
+            .filter(block -> !STATUS_CANCELLED.equals(block.getStatus()))
+            .map(TimelineBlock::getTaskPlanItemId)
+            .filter(taskId -> taskId != null)
+            .collect(Collectors.toSet());
     }
 
     private ValidationIssueResponse issueFromRuleHit(RuleHitIssue hit) {
@@ -207,11 +274,14 @@ public class ValidationPublishService {
             hit.severity(),
             hit.ruleId(),
             hit.ruleTitleEn(),
+            hit.ruleTitleZh(),
+            hit.ruleTitleEn(),
             hit.message(),
             hit.recommendedAction(),
             hit.status(),
             startUtc,
-            endUtc
+            endUtc,
+            hit.evidenceJson()
         );
     }
 
@@ -254,6 +324,7 @@ public class ValidationPublishService {
     }
 
     private record IssueListSnapshot(
+        Long rosterVersionId,
         String rosterVersionNo,
         String rosterVersionStatus,
         int blockedCount,

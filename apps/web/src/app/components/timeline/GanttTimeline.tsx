@@ -7,6 +7,7 @@ import {
   toUtcIsoString,
 } from '../../lib/time';
 import { useTimeFormatter } from '../../lib/TimeDisplayContext';
+import { TimeRange } from '../time';
 import { VisTimelineAdapter } from './VisTimelineAdapter';
 import { buildDisplayBlocks, toTimelineItem, uniqueGroups } from './timelineDisplay';
 import { legendStatusesForView } from './timelineLegend';
@@ -35,7 +36,7 @@ export function GanttTimeline({
   windowEndUtc,
   t,
 }: GanttTimelineProps) {
-  const { formatTimeRange, timezone } = useTimeFormatter();
+  const { timezone } = useTimeFormatter();
   const [selectedItemId, setSelectedItemId] = useState<IdType | null>(null);
   const displayBlocks = useMemo(() => buildDisplayBlocks(blocks, viewMode, t), [blocks, t, viewMode]);
   const legendStatuses = useMemo(() => legendStatusesForView(viewMode), [viewMode]);
@@ -99,7 +100,6 @@ export function GanttTimeline({
       {selectedItem && (
         <TimelineReadonlyDetail
           item={selectedItem}
-          formatTimeRange={formatTimeRange}
           t={t}
         />
       )}
@@ -118,11 +118,9 @@ export function defaultGanttWindow() {
 
 function TimelineReadonlyDetail({
   item,
-  formatTimeRange,
   t,
 }: {
   item: TimelineDisplayItem;
-  formatTimeRange: (start: string, end: string) => string;
   t: (key: string) => string;
 }) {
   const metadata = item.displayMetadata;
@@ -141,7 +139,7 @@ function TimelineReadonlyDetail({
         </div>
         <div>
           <dt>{t('timelineTimeWindow')}</dt>
-          <dd>{formatTimeRange(metadata.startUtc, metadata.endUtc)}</dd>
+          <dd><TimeRange start={metadata.startUtc} end={metadata.endUtc} /></dd>
         </div>
         {metadata.ruleHit && (
           <div>

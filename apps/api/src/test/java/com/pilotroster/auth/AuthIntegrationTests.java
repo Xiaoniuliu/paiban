@@ -63,7 +63,7 @@ class AuthIntegrationTests {
 
         mockMvc.perform(get("/api/task-plan/batches").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].batchNo").value("BATCH-2026-05-W1"));
+            .andExpect(jsonPath("$.data[*].batchNo").value(hasItem("BATCH-2026-05-W1")));
 
         mockMvc.perform(get("/api/task-plan/items").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())

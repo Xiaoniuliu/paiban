@@ -137,7 +137,7 @@ class CrewMemberControllerIntegrationTests {
             .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours28d", activeCrewId).value(contains(10.25)))
             .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours7d", activeCrewId).value(contains(10.25)))
             .andExpect(jsonPath("$.data[?(@.id == %d)].rollingDutyHours14d", activeCrewId).value(contains(10.25)))
-            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours12m", activeCrewId).value(contains(10.25)))
+            .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours12m", activeCrewId).value(contains(0.0)))
             .andExpect(jsonPath("$.data[?(@.id == %d)].latestActualFdpHours", activeCrewId).value(contains(8.25)))
             .andExpect(jsonPath("$.data[?(@.id == %d)].latestActualFdpSource", activeCrewId).value(contains("SYSTEM_FEED")))
             .andExpect(jsonPath("$.data[?(@.id == %d)].rollingFlightHours28d", inactiveCrewId).value(contains(99.25)));

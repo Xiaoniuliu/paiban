@@ -101,13 +101,26 @@ export function RuleCenterPage({ activeView, api, language, t }: PageProps) {
   useEffect(() => {
     if (!selectedRule) {
       setRecentHits([]);
+      setHitsLoading(false);
       return;
     }
+    let ignoreResponse = false;
+    const ruleId = selectedRule.ruleId;
+    setRecentHits([]);
     setHitsLoading(true);
-    api.ruleRecentHits(selectedRule.ruleId)
-      .then(setRecentHits)
-      .catch(() => setRecentHits([]))
-      .finally(() => setHitsLoading(false));
+    api.ruleRecentHits(ruleId)
+      .then((hits) => {
+        if (!ignoreResponse) setRecentHits(hits);
+      })
+      .catch(() => {
+        if (!ignoreResponse) setRecentHits([]);
+      })
+      .finally(() => {
+        if (!ignoreResponse) setHitsLoading(false);
+      });
+    return () => {
+      ignoreResponse = true;
+    };
   }, [api, selectedRule]);
 
   const updateRuleActive = async (rule: RuleCatalog, active: boolean) => {

@@ -6,6 +6,7 @@ import java.util.List;
 public class ValidationPublishDtos {
 
     public record ValidationIssueListResponse(
+        Long rosterVersionId,
         String rosterVersionNo,
         String rosterVersionStatus,
         int blockedCount,
@@ -15,6 +16,7 @@ public class ValidationPublishDtos {
     }
 
     public record ValidationPublishSummaryResponse(
+        Long rosterVersionId,
         String rosterVersionNo,
         String rosterVersionStatus,
         Instant validatedAtUtc,
@@ -49,11 +51,14 @@ public class ValidationPublishDtos {
         String severity,
         String ruleId,
         String ruleTitle,
+        String ruleTitleZh,
+        String ruleTitleEn,
         String message,
         String actionType,
         String status,
         Instant evidenceWindowStartUtc,
-        Instant evidenceWindowEndUtc
+        Instant evidenceWindowEndUtc,
+        String evidenceJson
     ) {
     }
 
